@@ -1,0 +1,74 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Dataset {
+  id          Int        @id @default(autoincrement())
+  name        String?
+  description String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  categories  Category[]
+  images      Image[]
+}
+
+model Category {
+  id            Int          @id @default(autoincrement())
+  name          String
+  supercategory String?
+  datasetId     Int
+  cocoId        Int
+  annotations   Annotation[]
+  dataset       Dataset      @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+
+  @@unique([cocoId, datasetId])
+}
+
+model Image {
+  id           Int          @id @default(autoincrement())
+  fileName     String
+  width        Int
+  height       Int
+  dateCaptured DateTime?
+  license      Int?
+  datasetId    Int
+  cocoId       Int
+  filePath     String?
+  annotations  Annotation[]
+  dataset      Dataset      @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+
+  @@unique([cocoId, datasetId])
+}
+
+model Annotation {
+  id         Int      @id @default(autoincrement())
+  imageId    Int
+  categoryId Int
+  bbox       Float[]
+  area       Float
+  iscrowd    Int      @default(0)
+  datasetId  Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  cocoId     Int
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  image      Image    @relation(fields: [imageId], references: [id], onDelete: Cascade)
+
+  @@unique([cocoId, datasetId])
+}
+
+model BoundingBox {
+  id        Int      @id @default(autoincrement())
+  imageId   String
+  category  String
+  x         Float
+  y         Float
+  width     Float
+  height    Float
+  createdAt DateTime @default(now())
+}
