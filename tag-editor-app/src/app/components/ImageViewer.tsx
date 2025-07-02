@@ -964,15 +964,36 @@ export default function ImageViewer({
     }
   };
 
-  const updateAnnotationLabel = (newLabel: string) => {
+  const updateAnnotationLabel = async (newLabel: string) => {
     if (selectedAnnotationId) {
-      setEditingAnnotations(prev =>
-        prev.map(ann =>
-          ann.id === selectedAnnotationId
-            ? { ...ann, category: { ...ann.category, name: newLabel } }
-            : ann
-        )
-      );
+      const selectedAnnotation = editingAnnotations.find(ann => ann.id === selectedAnnotationId);
+      if (selectedAnnotation) {
+        try {
+          // Update the category name in the backend
+          const response = await fetch(`/api/categories/${selectedAnnotation.category.id}`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ name: newLabel }),
+          });
+
+          if (response.ok) {
+            // Update the local state
+            setEditingAnnotations(prev =>
+              prev.map(ann =>
+                ann.id === selectedAnnotationId
+                  ? { ...ann, category: { ...ann.category, name: newLabel } }
+                  : ann
+              )
+            );
+          } else {
+            console.error('Failed to update category name');
+          }
+        } catch (error) {
+          console.error('Error updating category name:', error);
+        }
+      }
     }
   };
 
@@ -1429,8 +1450,27 @@ export default function ImageViewer({
                         <input
                           type="text"
                           value={editingAnnotations.find(ann => ann.id === selectedAnnotationId)?.category.name || ''}
-                          onChange={(e) => updateAnnotationLabel(e.target.value)}
+                          onChange={(e) => {
+                            // Update local state immediately for responsive UI
+                            setEditingAnnotations(prev =>
+                              prev.map(ann =>
+                                ann.id === selectedAnnotationId
+                                  ? { ...ann, category: { ...ann.category, name: e.target.value } }
+                                  : ann
+                              )
+                            );
+                          }}
+                          onBlur={async (e) => {
+                            // Save to backend when user finishes editing
+                            await updateAnnotationLabel(e.target.value);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              (e.target as HTMLInputElement).blur(); // Trigger onBlur to save
+                            }
+                          }}
                           className="w-full mt-1 px-3 py-2 border border-gray-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="Enter category name"
                         />
                       </label>
                       
@@ -1614,7 +1654,7 @@ export default function ImageViewer({
                     onClick={() => handleCategorySelection(category)}
                     className="w-full p-3 text-left border border-gray-400 rounded hover:bg-blue-50 hover:border-blue-300 transition-colors"
                   >
-                    <div className="font-medium text-black-800">{category.name}</div>
+                    <div className="font-medium text-gray-800">{category.name}</div>
                     {category.supercategory && (
                       <div className="text-xs text-gray-500">{category.supercategory}</div>
                     )}

@@ -18,7 +18,8 @@ export default function Home() {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [selectedDatasetId, setSelectedDatasetId] = useState<number | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+  const [uploadStatus, setUploadStatus] = useState('');
+  const [deletingDatasetId, setDeletingDatasetId] = useState<number | null>(null);
 
   const fetchDatasets = async () => {
     try {
@@ -41,7 +42,7 @@ export default function Home() {
     if (!file) return;
 
     setUploading(true);
-    setUploadStatus(null);
+    setUploadStatus('');
 
     try {
       const text = await file.text();
@@ -78,6 +79,39 @@ export default function Home() {
       setUploadStatus('Error uploading JSON file');
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleDeleteDataset = async (datasetId: number, datasetName: string) => {
+    if (!confirm(`Are you sure you want to delete the dataset "${datasetName}"? This will permanently delete all images and annotations.`)) {
+      return;
+    }
+
+    setDeletingDatasetId(datasetId);
+    try {
+      const response = await fetch(`/api/datasets/${datasetId}`, {
+        method: 'DELETE',
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        // Refresh datasets list
+        await fetchDatasets();
+        
+        // Clear selection if the deleted dataset was selected
+        if (selectedDatasetId === datasetId) {
+          setSelectedDatasetId(null);
+        }
+        
+        setUploadStatus(`Dataset "${datasetName}" deleted successfully. ${result.filesDeleted} files removed from storage.`);
+      } else {
+        setUploadStatus(`Error deleting dataset: ${result.error}`);
+      }
+    } catch (error) {
+      setUploadStatus(`Error deleting dataset: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setDeletingDatasetId(null);
     }
   };
 
@@ -131,31 +165,52 @@ export default function Home() {
               {datasets.map((dataset) => (
                 <div
                   key={dataset.id}
-                  className={`border rounded-lg p-4 cursor-pointer transition-colors ${
+                  className={`border rounded-lg p-4 relative transition-colors ${
                     selectedDatasetId === dataset.id
                       ? 'border-blue-500 bg-blue-50'
                       : 'border-gray-200 hover:border-gray-300'
                   }`}
-                  onClick={() => setSelectedDatasetId(dataset.id)}
                 >
-                  <h3 className="font-medium text-gray-900">{dataset.name}</h3>
-                  {dataset.description && (
-                    <p className="text-sm text-gray-600 mt-1">{dataset.description}</p>
-                  )}
-                  <div className="flex gap-4 mt-2 text-xs text-gray-500">
-                    <span>{dataset._count.images} images</span>
-                    <span>{dataset._count.categories} categories</span>
+                  <div 
+                    className="cursor-pointer"
+                    onClick={() => setSelectedDatasetId(dataset.id)}
+                  >
+                    <h3 className="font-medium text-gray-900">{dataset.name}</h3>
+                    {dataset.description && (
+                      <p className="text-sm text-gray-600 mt-1">{dataset.description}</p>
+                    )}
+                    <div className="flex gap-4 mt-2 text-xs text-gray-500">
+                      <span>{dataset._count.images} images</span>
+                      <span>{dataset._count.categories} categories</span>
+                    </div>
+                    <div className="text-xs text-gray-400 mt-1">
+                      {new Date(dataset.createdAt).toLocaleDateString()}
+                    </div>
                   </div>
-                  <div className="text-xs text-gray-400 mt-1">
-                    {new Date(dataset.createdAt).toLocaleDateString()}
-                  </div>
+                  
+                  {/* Delete button */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteDataset(dataset.id, dataset.name);
+                    }}
+                    disabled={deletingDatasetId === dataset.id}
+                    className="absolute top-2 right-2 p-1 text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
+                    title="Delete dataset"
+                  >
+                    {deletingDatasetId === dataset.id ? (
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-600"></div>
+                    ) : (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    )}
+                  </button>
                 </div>
               ))}
             </div>
           </div>
-        )}
-
-        {/* Dataset Viewer */}
+        )}        {/* Dataset Viewer */}
         {selectedDatasetId && (
           <DatasetViewer datasetId={selectedDatasetId} />
         )}
