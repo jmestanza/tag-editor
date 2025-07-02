@@ -69,9 +69,14 @@ export async function DELETE(
 
     // Delete images from MinIO bucket
     const imagesToDelete = dataset.images.filter((image) => image.filePath);
-    const deletePromises = imagesToDelete.map((image) =>
-      deleteFromMinio(image.filePath!)
+    console.log(
+      `Attempting to delete ${imagesToDelete.length} images from MinIO for dataset ${datasetId}`
     );
+
+    const deletePromises = imagesToDelete.map((image) => {
+      console.log(`Queuing deletion for: ${image.filePath}`);
+      return deleteFromMinio(image.filePath!);
+    });
 
     // Delete files from MinIO (continue even if some fail)
     const deleteResults = await Promise.allSettled(deletePromises);
@@ -83,6 +88,15 @@ export async function DELETE(
       console.warn(
         `Failed to delete ${failedDeletes} images from MinIO out of ${imagesToDelete.length}`
       );
+      // Log the specific errors for debugging
+      deleteResults.forEach((result, index) => {
+        if (result.status === "rejected") {
+          console.error(
+            `Failed to delete ${imagesToDelete[index].filePath}:`,
+            result.reason
+          );
+        }
+      });
     }
 
     // Delete dataset from database (this will cascade delete all related records)
@@ -97,6 +111,12 @@ export async function DELETE(
       } images deleted from storage.`,
       filesDeleted: imagesToDelete.length - failedDeletes,
       filesFailedToDelete: failedDeletes,
+      totalFilesToDelete: imagesToDelete.length,
+      deletionSummary: {
+        successful: imagesToDelete.length - failedDeletes,
+        failed: failedDeletes,
+        total: imagesToDelete.length,
+      },
     });
   } catch (error) {
     console.error("Failed to delete dataset:", error);

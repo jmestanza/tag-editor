@@ -93,9 +93,11 @@ export function getMinioDirectUrl(objectName: string): string {
 export async function deleteFromMinio(objectName: string): Promise<void> {
   try {
     const client = getMinioClient();
+    console.log(`Attempting to delete MinIO object: ${objectName}`);
     await client.removeObject(BUCKET_NAME, objectName);
+    console.log(`Successfully deleted MinIO object: ${objectName}`);
   } catch (error) {
-    console.error("Error deleting from MinIO:", error);
+    console.error(`Error deleting from MinIO (object: ${objectName}):`, error);
     throw error;
   }
 }
