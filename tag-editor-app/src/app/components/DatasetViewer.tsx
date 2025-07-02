@@ -46,6 +46,9 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [showUpload, setShowUpload] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editedName, setEditedName] = useState('');
+  const [isSavingName, setIsSavingName] = useState(false);
 
   useEffect(() => {
     const loadDataset = async () => {
@@ -113,9 +116,7 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
     if (dataset && currentImageIndex < dataset.images.length - 1) {
       setCurrentImageIndex(currentImageIndex + 1);
     }
-  };
-
-  const handleExportAnnotations = async () => {
+  };  const handleExportAnnotations = async () => {
     if (!dataset) return;
     
     setIsExporting(true);
@@ -131,7 +132,7 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
       const filename = contentDisposition
         ? contentDisposition.split('filename=')[1]?.replace(/"/g, '')
         : `${dataset.name || 'dataset'}_annotations.json`;
-      
+
       // Create a blob and download the file
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
@@ -148,6 +149,57 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
       alert('Failed to export annotations. Please try again.');
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  const handleEditName = () => {
+    if (!dataset) return;
+    setEditedName(dataset.name || '');
+    setIsEditingName(true);
+  };
+
+  const handleSaveName = async () => {
+    if (!dataset || !editedName.trim()) return;
+    
+    setIsSavingName(true);
+    try {
+      const response = await fetch(`/api/datasets/${dataset.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name: editedName.trim() }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to update dataset name');
+      }
+
+      // const result = await response.json();
+      
+      // Update the local dataset state
+      setDataset(prev => prev ? { ...prev, name: editedName.trim() } : null);
+      setIsEditingName(false);
+      
+    } catch (error) {
+      console.error('Error updating dataset name:', error);
+      alert(`Failed to update dataset name: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsSavingName(false);
+    }
+  };
+
+  const handleCancelEditName = () => {
+    setIsEditingName(false);
+    setEditedName('');
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleSaveName();
+    } else if (e.key === 'Escape') {
+      handleCancelEditName();
     }
   };
 
@@ -185,8 +237,68 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
       {/* Dataset Header */}
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex justify-between items-start">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900">{dataset.name}</h2>
+          <div className="flex-1">
+            {/* Dataset Name with Edit Functionality */}
+            <div className="flex items-center gap-3 mb-2">
+              {isEditingName ? (
+                <div className="flex items-center gap-2 flex-1">
+                  <input
+                    type="text"
+                    value={editedName}
+                    onChange={(e) => setEditedName(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    className="text-2xl font-bold text-gray-900 bg-white border border-gray-300 rounded px-2 py-1 flex-1 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Enter dataset name"
+                    autoFocus
+                  />
+                  <button
+                    onClick={handleSaveName}
+                    disabled={isSavingName || !editedName.trim()}
+                    className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm flex items-center gap-1"
+                  >
+                    {isSavingName ? (
+                      <>
+                        <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        Save
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={handleCancelEditName}
+                    disabled={isSavingName}
+                    className="px-3 py-1 bg-gray-500 text-white rounded hover:bg-gray-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm flex items-center gap-1"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <h2 className="text-2xl font-bold text-gray-900">{dataset.name || 'Unnamed Dataset'}</h2>
+                  <button
+                    onClick={handleEditName}
+                    className="p-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
+                    title="Edit dataset name"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                  </button>
+                </>
+              )}
+            </div>
             {dataset.description && (
               <p className="text-gray-600 mt-1">{dataset.description}</p>
             )}
