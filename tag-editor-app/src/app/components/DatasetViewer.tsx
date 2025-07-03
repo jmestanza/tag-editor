@@ -51,6 +51,7 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
   const [editedName, setEditedName] = useState('');
   const [isSavingName, setIsSavingName] = useState(false);
   const [isGeneratingThumbnails, setIsGeneratingThumbnails] = useState(false);
+  const [galleryStartIndex, setGalleryStartIndex] = useState(0);
 
   useEffect(() => {
     const loadDataset = async () => {
@@ -72,6 +73,17 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
     
     loadDataset();
   }, [datasetId]);
+
+  // Update gallery start index when current image changes (e.g., via navigation)
+  useEffect(() => {
+    if (dataset && dataset.images.length > 0) {
+      const IMAGES_PER_ROW = 8;
+      if (currentImageIndex < galleryStartIndex || currentImageIndex >= galleryStartIndex + IMAGES_PER_ROW) {
+        const newStartIndex = Math.floor(currentImageIndex / IMAGES_PER_ROW) * IMAGES_PER_ROW;
+        setGalleryStartIndex(newStartIndex);
+      }
+    }
+  }, [currentImageIndex, dataset]);
 
   const handleUploadComplete = () => {
     // Refresh dataset data after upload
@@ -268,6 +280,25 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
   const expectedCount = dataset.expectedImageCount || 0;
   const remainingCount = expectedCount > uploadedCount ? expectedCount - uploadedCount : 0;
   const uploadProgress = expectedCount > 0 ? (uploadedCount / expectedCount) * 100 : 0;
+  
+  // Gallery pagination
+  const IMAGES_PER_ROW = 8;
+  const galleryImages = dataset.images.slice(galleryStartIndex, galleryStartIndex + IMAGES_PER_ROW);
+  const hasGalleryPrevious = galleryStartIndex > 0;
+  const hasGalleryNext = galleryStartIndex + IMAGES_PER_ROW < dataset.images.length;
+  
+  const handleGalleryPrevious = () => {
+    setGalleryStartIndex(Math.max(0, galleryStartIndex - IMAGES_PER_ROW));
+  };
+  
+  const handleGalleryNext = () => {
+    setGalleryStartIndex(Math.min(dataset.images.length - IMAGES_PER_ROW, galleryStartIndex + IMAGES_PER_ROW));
+  };
+  
+  const handleGalleryImageClick = (index: number) => {
+    const actualIndex = galleryStartIndex + index;
+    setCurrentImageIndex(actualIndex);
+  };
 
   return (
     <div className="space-y-6">
@@ -514,56 +545,100 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
 
           {/* Image Gallery */}
           <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold mb-4">Image Gallery</h3>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-3">
-              {dataset.images.map((image, index) => (
-                <div
-                  key={image.id}
-                  className={`relative aspect-square overflow-hidden rounded-lg cursor-pointer transition-all duration-200 hover:scale-105 hover:shadow-lg ${
-                    index === currentImageIndex
-                      ? 'ring-4 ring-blue-500 ring-opacity-75 shadow-lg'
-                      : 'ring-2 ring-gray-200 hover:ring-gray-300'
-                  }`}
-                  onClick={() => setCurrentImageIndex(index)}
-                >
-                  <img
-                    src={
-                      image.thumbnailPath 
-                        ? `/api/images/${image.thumbnailPath}`
-                        : image.filePath 
-                          ? image.filePath.startsWith('/') 
-                            ? image.filePath  // Legacy local path
-                            : `/api/images/${image.filePath}`  // MinIO object name
-                          : `/uploads/${dataset.id}/${image.fileName}`  // Fallback
-                    }
-                    alt={`${image.fileName} thumbnail`}
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                  />
-                  
-                  {/* Image overlay with info */}
-                  <div className="absolute inset-0 bg-black bg-opacity-0 hover:bg-opacity-50 transition-all duration-200 flex items-end">
-                    <div className="w-full p-2 text-white text-xs bg-gradient-to-t from-black to-transparent opacity-0 hover:opacity-100 transition-opacity duration-200">
-                      <div className="font-medium truncate">{image.fileName}</div>
-                      <div className="text-gray-300">
-                        {image.annotations.length} annotation{image.annotations.length !== 1 ? 's' : ''}
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Image Gallery</h3>
+              <div className="text-sm text-gray-500">
+                Showing {galleryStartIndex + 1}-{Math.min(galleryStartIndex + IMAGES_PER_ROW, dataset.images.length)} of {dataset.images.length} images
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-4">
+              {/* Previous Button */}
+              <button
+                onClick={handleGalleryPrevious}
+                disabled={!hasGalleryPrevious}
+                className="flex-shrink-0 p-2 bg-gray-600 text-white rounded-full hover:bg-gray-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                title="Previous images"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              
+              {/* Gallery Grid */}
+              <div className="flex-1 grid grid-cols-8 gap-3">
+                {galleryImages.map((image, index) => {
+                  const actualIndex = galleryStartIndex + index;
+                  return (
+                    <div
+                      key={image.id}
+                      className={`relative aspect-square overflow-hidden rounded-lg cursor-pointer transition-all duration-200 hover:scale-105 hover:shadow-lg ${
+                        actualIndex === currentImageIndex
+                          ? 'ring-4 ring-blue-500 ring-opacity-75 shadow-lg'
+                          : 'ring-2 ring-gray-200 hover:ring-gray-300'
+                      }`}
+                      onClick={() => handleGalleryImageClick(index)}
+                    >
+                      <img
+                        src={
+                          image.thumbnailPath 
+                            ? `/api/images/${image.thumbnailPath}`
+                            : image.filePath 
+                              ? image.filePath.startsWith('/') 
+                                ? image.filePath  // Legacy local path
+                                : `/api/images/${image.filePath}`  // MinIO object name
+                              : `/uploads/${dataset.id}/${image.fileName}`  // Fallback
+                        }
+                        alt={`${image.fileName} thumbnail`}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                      
+                      {/* Image overlay with info */}
+                      <div className="absolute inset-0 bg-black bg-opacity-0 hover:bg-opacity-50 transition-all duration-200 flex items-end">
+                        <div className="w-full p-2 text-white text-xs bg-gradient-to-t from-black to-transparent opacity-0 hover:opacity-100 transition-opacity duration-200">
+                          <div className="font-medium truncate">{image.fileName}</div>
+                          <div className="text-gray-300">
+                            {image.annotations.length} annotation{image.annotations.length !== 1 ? 's' : ''}
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Current image indicator */}
+                      {actualIndex === currentImageIndex && (
+                        <div className="absolute top-2 right-2 bg-blue-500 text-white text-xs px-2 py-1 rounded-full font-medium">
+                          Current
+                        </div>
+                      )}
+                      
+                      {/* Image number */}
+                      <div className="absolute top-2 left-2 bg-black bg-opacity-50 text-white text-xs px-2 py-1 rounded-full">
+                        {actualIndex + 1}
                       </div>
                     </div>
-                  </div>
-                  
-                  {/* Current image indicator */}
-                  {index === currentImageIndex && (
-                    <div className="absolute top-2 right-2 bg-blue-500 text-white text-xs px-2 py-1 rounded-full font-medium">
-                      Current
-                    </div>
-                  )}
-                  
-                  {/* Image number */}
-                  <div className="absolute top-2 left-2 bg-black bg-opacity-50 text-white text-xs px-2 py-1 rounded-full">
-                    {index + 1}
-                  </div>
-                </div>
-              ))}
+                  );
+                })}
+                
+                {/* Fill empty slots if there are fewer than 8 images */}
+                {Array.from({ length: IMAGES_PER_ROW - galleryImages.length }, (_, index) => (
+                  <div
+                    key={`empty-${index}`}
+                    className="aspect-square bg-gray-100 rounded-lg border-2 border-dashed border-gray-300"
+                  />
+                ))}
+              </div>
+              
+              {/* Next Button */}
+              <button
+                onClick={handleGalleryNext}
+                disabled={!hasGalleryNext}
+                className="flex-shrink-0 p-2 bg-gray-600 text-white rounded-full hover:bg-gray-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                title="Next images"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
             </div>
             
             {/* Gallery navigation info */}
