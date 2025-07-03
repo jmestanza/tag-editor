@@ -376,6 +376,9 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
               <span>
                 {dataset.images.reduce((sum, img) => sum + img.annotations.length, 0)} annotations
               </span>
+              <span className={`${dataset.images.filter(img => img.thumbnailPath).length === dataset.images.length ? 'text-green-600' : 'text-orange-600'}`}>
+                {dataset.images.filter(img => img.thumbnailPath).length} / {dataset.images.length} thumbnails
+              </span>
               {remainingCount > 0 && (
                 <span className="text-orange-600 font-medium">
                   {remainingCount} images remaining
@@ -615,6 +618,15 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
                       <div className="absolute top-2 left-2 bg-black bg-opacity-50 text-white text-xs px-2 py-1 rounded-full">
                         {actualIndex + 1}
                       </div>
+                      
+                      {/* Warning icon for images without thumbnails */}
+                      {!image.thumbnailPath && (
+                        <div className="absolute bottom-2 right-2 bg-yellow-500 text-white p-1 rounded-full" title="No thumbnail - using full image">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L4.232 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                          </svg>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
