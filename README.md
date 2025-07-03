@@ -8,8 +8,10 @@ A web application for uploading, viewing, and editing COCO dataset annotations w
 - **Image Upload**: Upload corresponding images for your datasets with MinIO storage
 - **Visual Annotation Viewer**: View images with bounding box annotations overlaid
 - **Interactive Image Viewer**: Zoom, pan, and navigate through image collections
+- **Advanced Annotation Editor**: Create, edit, and delete bounding box annotations with precision tools
 - **Category Management**: Browse and manage annotation categories
 - **Dataset Organization**: Organize multiple datasets with their respective images and annotations
+- **Dataset Merging**: Combine multiple datasets with intelligent category and file handling
 - **Export Functionality**: Download edited annotations as COCO JSON files
 - **Scalable Storage**: MinIO object storage integration for enterprise-grade file management
 - **Real-time Updates**: Hot reload during development

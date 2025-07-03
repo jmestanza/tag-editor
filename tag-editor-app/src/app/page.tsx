@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import DatasetViewer from './components/DatasetViewer';
+import DatasetMerge from './components/DatasetMerge';
 
 interface Dataset {
   id: number;
@@ -23,6 +24,7 @@ export default function Home() {
   const [editingDatasetId, setEditingDatasetId] = useState<number | null>(null);
   const [editedDatasetName, setEditedDatasetName] = useState('');
   const [savingDatasetId, setSavingDatasetId] = useState<number | null>(null);
+  const [showMergeModal, setShowMergeModal] = useState(false);
 
   const fetchDatasets = async () => {
     try {
@@ -212,7 +214,20 @@ export default function Home() {
         {/* Datasets List */}
         {datasets.length > 0 && (
           <div className="bg-white rounded-lg shadow mb-8 p-6">
-            <h2 className="text-xl font-semibold mb-4">Your Datasets</h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">Your Datasets</h2>
+              {datasets.length >= 2 && (
+                <button
+                  onClick={() => setShowMergeModal(true)}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors flex items-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                  </svg>
+                  Merge Datasets
+                </button>
+              )}
+            </div>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {datasets.map((dataset) => (
                 <div
@@ -346,6 +361,18 @@ export default function Home() {
               <p>No datasets found. Upload a COCO JSON file to get started.</p>
             </div>
           </div>
+        )}
+
+        {/* Dataset Merge Modal */}
+        {showMergeModal && (
+          <DatasetMerge
+            datasets={datasets}
+            onMergeComplete={() => {
+              fetchDatasets();
+              setSelectedDatasetId(null);
+            }}
+            onClose={() => setShowMergeModal(false)}
+          />
         )}
       </div>
     </div>
