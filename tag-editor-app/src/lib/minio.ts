@@ -1,4 +1,5 @@
 import { Client as MinioClient, BucketItem } from "minio";
+import sharp from "sharp";
 
 function getMinioConfig() {
   const endpoint = process.env.MINIO_ENDPOINT || "localhost:9000";
@@ -140,6 +141,47 @@ export async function listObjects(prefix?: string): Promise<string[]> {
     });
   } catch (error) {
     console.error("Error listing objects:", error);
+    throw error;
+  }
+}
+
+// Generate and upload thumbnail
+export async function generateAndUploadThumbnail(
+  originalObjectName: string,
+  buffer: Buffer,
+  maxSize: number = 200
+): Promise<string> {
+  try {
+    // Generate thumbnail using Sharp
+    const thumbnailBuffer = await sharp(buffer)
+      .resize(maxSize, maxSize, {
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .jpeg({ quality: 80 })
+      .toBuffer();
+
+    // Create thumbnail object name
+    const thumbnailObjectName = originalObjectName.replace(
+      /(\.[^.]+)$/,
+      "_thumb$1"
+    );
+
+    // Upload thumbnail to MinIO
+    const client = getMinioClient();
+    await client.putObject(
+      BUCKET_NAME,
+      thumbnailObjectName,
+      thumbnailBuffer,
+      thumbnailBuffer.length,
+      {
+        "Content-Type": "image/jpeg",
+      }
+    );
+
+    return thumbnailObjectName;
+  } catch (error) {
+    console.error("Error generating thumbnail:", error);
     throw error;
   }
 }

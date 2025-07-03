@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { initializeBucket, uploadToMinio, getMinioProxyUrl } from "@/lib/minio";
+import {
+  initializeBucket,
+  uploadToMinio,
+  getMinioProxyUrl,
+  generateAndUploadThumbnail,
+} from "@/lib/minio";
 
 export async function POST(request: Request) {
   try {
@@ -56,7 +61,13 @@ export async function POST(request: Request) {
           contentType
         );
 
-        // Update the image record in the database with the object name
+        // Generate and upload thumbnail
+        const thumbnailObjectName = await generateAndUploadThumbnail(
+          uploadedObjectName,
+          buffer
+        );
+
+        // Update the image record in the database with the object name and thumbnail
         const image = await prisma.image.findFirst({
           where: {
             fileName: file.name,
@@ -67,7 +78,7 @@ export async function POST(request: Request) {
         if (image) {
           await prisma.$executeRaw`
             UPDATE "Image" 
-            SET "filePath" = ${uploadedObjectName}
+            SET "filePath" = ${uploadedObjectName}, "thumbnailPath" = ${thumbnailObjectName}
             WHERE "id" = ${image.id}
           `;
         }

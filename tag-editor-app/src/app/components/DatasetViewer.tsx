@@ -22,6 +22,7 @@ interface Image {
   width: number;
   height: number;
   filePath?: string | null;
+  thumbnailPath?: string | null;
   annotations: Annotation[];
 }
 
@@ -49,6 +50,7 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState('');
   const [isSavingName, setIsSavingName] = useState(false);
+  const [isGeneratingThumbnails, setIsGeneratingThumbnails] = useState(false);
 
   useEffect(() => {
     const loadDataset = async () => {
@@ -203,6 +205,41 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
     }
   };
 
+  const handleGenerateThumbnails = async () => {
+    if (!dataset) return;
+    
+    setIsGeneratingThumbnails(true);
+    try {
+      const response = await fetch('/api/generate-thumbnails', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ datasetId: dataset.id }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate thumbnails');
+      }
+
+      const result = await response.json();
+      alert(`Generated thumbnails for ${result.processed} images`);
+      
+      // Refresh dataset to get updated thumbnail paths
+      const refreshResponse = await fetch(`/api/datasets?id=${dataset.id}`);
+      if (refreshResponse.ok) {
+        const refreshedData = await refreshResponse.json();
+        setDataset(refreshedData);
+      }
+      
+    } catch (error) {
+      console.error('Error generating thumbnails:', error);
+      alert('Failed to generate thumbnails. Please try again.');
+    } finally {
+      setIsGeneratingThumbnails(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -316,6 +353,28 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
             </div>
           </div>
           <div className="flex gap-2">
+            <button
+              onClick={handleGenerateThumbnails}
+              disabled={isGeneratingThumbnails || dataset.images.length === 0}
+              className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {isGeneratingThumbnails ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  Generate Thumbnails
+                </>
+              )}
+            </button>
             <button
               onClick={handleExportAnnotations}
               disabled={isExporting || dataset.images.length === 0}
@@ -452,6 +511,66 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
             hasPrevious={currentImageIndex > 0}
             hasNext={currentImageIndex < dataset.images.length - 1}
           />
+
+          {/* Image Gallery */}
+          <div className="bg-white rounded-lg shadow p-6">
+            <h3 className="text-lg font-semibold mb-4">Image Gallery</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-3">
+              {dataset.images.map((image, index) => (
+                <div
+                  key={image.id}
+                  className={`relative aspect-square overflow-hidden rounded-lg cursor-pointer transition-all duration-200 hover:scale-105 hover:shadow-lg ${
+                    index === currentImageIndex
+                      ? 'ring-4 ring-blue-500 ring-opacity-75 shadow-lg'
+                      : 'ring-2 ring-gray-200 hover:ring-gray-300'
+                  }`}
+                  onClick={() => setCurrentImageIndex(index)}
+                >
+                  <img
+                    src={
+                      image.thumbnailPath 
+                        ? `/api/images/${image.thumbnailPath}`
+                        : image.filePath 
+                          ? image.filePath.startsWith('/') 
+                            ? image.filePath  // Legacy local path
+                            : `/api/images/${image.filePath}`  // MinIO object name
+                          : `/uploads/${dataset.id}/${image.fileName}`  // Fallback
+                    }
+                    alt={`${image.fileName} thumbnail`}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                  
+                  {/* Image overlay with info */}
+                  <div className="absolute inset-0 bg-black bg-opacity-0 hover:bg-opacity-50 transition-all duration-200 flex items-end">
+                    <div className="w-full p-2 text-white text-xs bg-gradient-to-t from-black to-transparent opacity-0 hover:opacity-100 transition-opacity duration-200">
+                      <div className="font-medium truncate">{image.fileName}</div>
+                      <div className="text-gray-300">
+                        {image.annotations.length} annotation{image.annotations.length !== 1 ? 's' : ''}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Current image indicator */}
+                  {index === currentImageIndex && (
+                    <div className="absolute top-2 right-2 bg-blue-500 text-white text-xs px-2 py-1 rounded-full font-medium">
+                      Current
+                    </div>
+                  )}
+                  
+                  {/* Image number */}
+                  <div className="absolute top-2 left-2 bg-black bg-opacity-50 text-white text-xs px-2 py-1 rounded-full">
+                    {index + 1}
+                  </div>
+                </div>
+              ))}
+            </div>
+            
+            {/* Gallery navigation info */}
+            <div className="mt-4 text-sm text-gray-500 text-center">
+              Click on any image to view it in detail above
+            </div>
+          </div>
         </div>
       ) : (
         <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded">

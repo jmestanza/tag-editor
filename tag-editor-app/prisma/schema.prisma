@@ -39,6 +39,7 @@ model Image {
   datasetId    Int
   cocoId       Int
   filePath     String?
+  thumbnailPath String?
   annotations  Annotation[]
   dataset      Dataset      @relation(fields: [datasetId], references: [id], onDelete: Cascade)
 
