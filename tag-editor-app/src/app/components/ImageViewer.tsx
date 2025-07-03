@@ -1185,15 +1185,6 @@ export default function ImageViewer({
       <h3 className="text-lg font-semibold mb-2 text-gray-800">{fileName}</h3>
       <div className="flex flex-col lg:flex-row gap-4">
         <div className="flex-1">
-          <div className="flex justify-between items-center mb-2">
-            <div></div>
-            <button
-              onClick={() => setIsModalOpen(true)}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
-            >
-              Bounding Box
-            </button>
-          </div>
           <div className="relative inline-block">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -1228,13 +1219,25 @@ export default function ImageViewer({
             
             {/* Canvas - only show when image is loaded */}
             {imageLoaded && (
-              <canvas
-                ref={canvasRef}
-                width={canvasSize.width}
-                height={canvasSize.height}
-                className="border border-gray-500 rounded"
-                style={{ maxWidth: '100%', height: 'auto' }}
-              />
+              <>
+                <canvas
+                  ref={canvasRef}
+                  width={canvasSize.width}
+                  height={canvasSize.height}
+                  className="border border-gray-500 rounded"
+                  style={{ maxWidth: '100%', height: 'auto' }}
+                />
+                {/* Edit button overlay */}
+                <button
+                  onClick={() => setIsModalOpen(true)}
+                  className="absolute top-4 right-4 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-lg flex items-center gap-2 text-sm font-medium"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                  Edit
+                </button>
+              </>
             )}
           </div>
           <p className="text-sm text-gray-600 mt-2">
