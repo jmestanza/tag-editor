@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import CategoryMappingManager from './CategoryMappingManager';
 
 interface Dataset {
   id: number;
@@ -11,6 +12,46 @@ interface Dataset {
     images: number;
     categories: number;
   };
+}
+
+interface CategoryConflict {
+  categoryName: string;
+  cocoId: number;
+  datasets: Array<{
+    datasetId: number;
+    datasetName: string;
+    categoryId: number;
+    annotationCount: number;
+  }>;
+  suggestedAction: "merge" | "keep_separate" | "rename";
+  reason: string;
+}
+
+interface CategoryMappingDecision {
+  conflictIndex: number;
+  action: "merge" | "keep_separate" | "rename";
+  targetCategoryName?: string;
+  targetCocoId?: number;
+  selectedSourceCategoryId?: number;
+}
+
+interface MergeAnalysis {
+  totalSourceDatasets: number;
+  totalCategories: number;
+  exactMatches: number;
+  nameConflicts: number;
+  conflicts: CategoryConflict[];
+  datasets: Array<{
+    id: number;
+    name: string;
+    categoryCount: number;
+    categories: Array<{
+      id: number;
+      name: string;
+      cocoId: number;
+      annotationCount: number;
+    }>;
+  }>;
 }
 
 interface DatasetMergeProps {
@@ -33,7 +74,19 @@ interface MergeResult {
     copyErrors: string[];
     thumbnailsCopied: number;
     thumbnailsCopyFailed: number;
+    duplicateImagesFound: number;
+    annotationsCopied: number;
+    annotationsCopyFailed: number;
+    annotationsSkippedNoCategory: number;
+    annotationErrors: string[];
   };
+  duplicateWarnings?: Array<{
+    fileName: string;
+    count: number;
+    datasets: string[];
+    selectedDataset?: string;
+    reason?: string;
+  }>;
 }
 
 export default function DatasetMerge({ datasets, onMergeComplete, onClose }: DatasetMergeProps) {
@@ -43,10 +96,12 @@ export default function DatasetMerge({ datasets, onMergeComplete, onClose }: Dat
   const [newDatasetDescription, setNewDatasetDescription] = useState('');
   const [mergeStrategy, setMergeStrategy] = useState<'create_new' | 'merge_into_existing'>('create_new');
   const [categoryMergeStrategy, setCategoryMergeStrategy] = useState<'keep_separate' | 'merge_by_name' | 'prefix_with_dataset'>('merge_by_name');
-  const [handleDuplicateImages, setHandleDuplicateImages] = useState<'skip' | 'rename' | 'overwrite'>('rename');
+  const [handleDuplicateImages, setHandleDuplicateImages] = useState<'skip' | 'rename' | 'overwrite' | 'keep_best_annotated'>('rename');
   const [isMerging, setIsMerging] = useState(false);
   const [mergeResult, setMergeResult] = useState<MergeResult | null>(null);
   const [currentStep, setCurrentStep] = useState(1);
+  const [mergeAnalysis, setMergeAnalysis] = useState<MergeAnalysis | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   // Auto-generate dataset name when datasets are selected
   useEffect(() => {
@@ -82,51 +137,6 @@ export default function DatasetMerge({ datasets, onMergeComplete, onClose }: Dat
     return true;
   };
 
-  const handleMerge = async () => {
-    if (!canProceed()) return;
-
-    setIsMerging(true);
-    setMergeResult(null);
-
-    try {
-      const response = await fetch('/api/datasets/merge', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          sourceDatasetIds: selectedDatasets,
-          targetDatasetId,
-          newDatasetName: newDatasetName.trim(),
-          newDatasetDescription: newDatasetDescription.trim(),
-          mergeStrategy,
-          categoryMergeStrategy,
-          handleDuplicateImages
-        }),
-      });
-
-      const result = await response.json();
-
-      if (response.ok) {
-        setMergeResult(result);
-        setCurrentStep(3);
-        onMergeComplete();
-      } else {
-        setMergeResult({
-          success: false,
-          message: result.error || 'Failed to merge datasets'
-        });
-      }
-    } catch (error) {
-      setMergeResult({
-        success: false,
-        message: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
-      });
-    } finally {
-      setIsMerging(false);
-    }
-  };
-
   const resetForm = () => {
     setSelectedDatasets([]);
     setTargetDatasetId(null);
@@ -137,6 +147,92 @@ export default function DatasetMerge({ datasets, onMergeComplete, onClose }: Dat
     setHandleDuplicateImages('rename');
     setMergeResult(null);
     setCurrentStep(1);
+    setMergeAnalysis(null);
+  };
+
+  const handleAnalyzeMerge = async () => {
+    if (selectedDatasets.length < 2) return;
+
+    setIsAnalyzing(true);
+    try {
+      const response = await fetch('/api/datasets/analyze-merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceDatasetIds: selectedDatasets,
+          targetDatasetId,
+          mergeStrategy,
+          categoryMergeStrategy,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to analyze merge');
+      }
+
+      const result = await response.json();
+      setMergeAnalysis(result.analysis);
+      
+      // If there are conflicts, go to category mapping step
+      if (result.analysis.conflicts.length > 0) {
+        setCurrentStep(2.5); // Category mapping step
+      } else {
+        // No conflicts, proceed to merge
+        setCurrentStep(3);
+        performMerge([]);
+      }
+    } catch (error) {
+      console.error('Analysis failed:', error);
+      alert('Failed to analyze merge. Please try again.');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleCategoryMappingComplete = (decisions: CategoryMappingDecision[]) => {
+    setCurrentStep(3);
+    performMerge(decisions);
+  };
+
+  const performMerge = async (categoryDecisions: CategoryMappingDecision[]) => {
+    setIsMerging(true);
+    try {
+      const response = await fetch('/api/datasets/merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceDatasetIds: selectedDatasets,
+          targetDatasetId,
+          newDatasetName,
+          newDatasetDescription,
+          mergeStrategy,
+          categoryMergeStrategy,
+          handleDuplicateImages,
+          categoryMappingDecisions: categoryDecisions,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Merge failed');
+      }
+
+      const result = await response.json();
+      setMergeResult(result);
+      setCurrentStep(4);
+      
+      if (result.success) {
+        onMergeComplete();
+      }
+    } catch (error) {
+      console.error('Merge failed:', error);
+      setMergeResult({
+        success: false,
+        message: error instanceof Error ? error.message : 'Unknown error occurred',
+      });
+      setCurrentStep(4);
+    } finally {
+      setIsMerging(false);
+    }
   };
 
   const stats = getSelectedDatasetStats();
@@ -393,7 +489,7 @@ export default function DatasetMerge({ datasets, onMergeComplete, onClose }: Dat
                           type="radio"
                           value="rename"
                           checked={handleDuplicateImages === 'rename'}
-                          onChange={(e) => setHandleDuplicateImages(e.target.value as 'skip' | 'rename' | 'overwrite')}
+                          onChange={(e) => setHandleDuplicateImages(e.target.value as 'skip' | 'rename' | 'overwrite' | 'keep_best_annotated')}
                           className="mr-2 mt-0.5"
                         />
                         <div>
@@ -406,7 +502,7 @@ export default function DatasetMerge({ datasets, onMergeComplete, onClose }: Dat
                           type="radio"
                           value="skip"
                           checked={handleDuplicateImages === 'skip'}
-                          onChange={(e) => setHandleDuplicateImages(e.target.value as 'skip' | 'rename' | 'overwrite')}
+                          onChange={(e) => setHandleDuplicateImages(e.target.value as 'skip' | 'rename' | 'overwrite' | 'keep_best_annotated')}
                           className="mr-2 mt-0.5"
                         />
                         <div>
@@ -419,12 +515,25 @@ export default function DatasetMerge({ datasets, onMergeComplete, onClose }: Dat
                           type="radio"
                           value="overwrite"
                           checked={handleDuplicateImages === 'overwrite'}
-                          onChange={(e) => setHandleDuplicateImages(e.target.value as 'skip' | 'rename' | 'overwrite')}
+                          onChange={(e) => setHandleDuplicateImages(e.target.value as 'skip' | 'rename' | 'overwrite' | 'keep_best_annotated')}
                           className="mr-2 mt-0.5"
                         />
                         <div>
                           <span>Overwrite duplicates</span>
                           <p className="text-xs text-gray-500">Replace existing files with new ones</p>
+                        </div>
+                      </label>
+                      <label className="flex items-start">
+                        <input
+                          type="radio"
+                          value="keep_best_annotated"
+                          checked={handleDuplicateImages === 'keep_best_annotated'}
+                          onChange={(e) => setHandleDuplicateImages(e.target.value as 'skip' | 'rename' | 'overwrite' | 'keep_best_annotated')}
+                          className="mr-2 mt-0.5"
+                        />
+                        <div>
+                          <span>Keep best annotated</span>
+                          <p className="text-xs text-gray-500">Automatically select the version with most annotations</p>
                         </div>
                       </label>
                     </div>
@@ -434,7 +543,15 @@ export default function DatasetMerge({ datasets, onMergeComplete, onClose }: Dat
             </div>
           )}
 
-          {currentStep === 3 && mergeResult && (
+          {currentStep === 2.5 && mergeAnalysis && (
+            <CategoryMappingManager
+              conflicts={mergeAnalysis.conflicts}
+              onMappingComplete={handleCategoryMappingComplete}
+              onBack={() => setCurrentStep(2)}
+            />
+          )}
+
+          {currentStep >= 3 && mergeResult && (
             <div className="space-y-6">
               <div className={`text-center p-6 rounded-lg ${
                 mergeResult.success ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
@@ -498,13 +615,75 @@ export default function DatasetMerge({ datasets, onMergeComplete, onClose }: Dat
                         {mergeResult.statistics.thumbnailsCopyFailed}
                       </div>
                     </div>
+                    <div>
+                      <span className="font-medium text-gray-700">Duplicate Images:</span>
+                      <div className={mergeResult.statistics.duplicateImagesFound > 0 ? "text-blue-600" : "text-gray-900"}>
+                        {mergeResult.statistics.duplicateImagesFound}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700">Annotations Copied:</span>
+                      <div className="text-gray-900">{mergeResult.statistics.annotationsCopied}</div>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700">Annotation Failures:</span>
+                      <div className={mergeResult.statistics.annotationsCopyFailed > 0 ? "text-red-600" : "text-gray-900"}>
+                        {mergeResult.statistics.annotationsCopyFailed}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700">Annotations Skipped:</span>
+                      <div className={mergeResult.statistics.annotationsSkippedNoCategory > 0 ? "text-orange-600" : "text-gray-900"}>
+                        {mergeResult.statistics.annotationsSkippedNoCategory}
+                      </div>
+                    </div>
                   </div>
+
+                  {/* Duplicate Warnings Section */}
+                  {mergeResult.duplicateWarnings && mergeResult.duplicateWarnings.length > 0 && (
+                    <div className="mt-4">
+                      <h5 className="font-medium text-blue-700 mb-2">Duplicate Images Found:</h5>
+                      <div className="max-h-48 overflow-y-auto space-y-2">
+                        {mergeResult.duplicateWarnings.map((warning, index) => (
+                          <div key={index} className="bg-blue-50 border border-blue-200 rounded-md p-3">
+                            <div className="flex items-start">
+                              <svg className="w-5 h-5 text-blue-400 mt-0.5 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              <div className="flex-1 min-w-0">
+                                <h6 className="font-medium text-blue-800 text-sm">{warning.fileName}</h6>
+                                <p className="text-xs text-blue-700 mt-1">
+                                  Found in {warning.count} datasets: {warning.datasets.join(', ')}
+                                </p>
+                                {warning.selectedDataset && warning.reason && (
+                                  <p className="text-xs text-blue-600 mt-1">
+                                    ✓ {warning.reason}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {mergeResult.statistics.copyErrors.length > 0 && (
                     <div className="mt-4">
                       <h5 className="font-medium text-red-700 mb-2">Copy Errors:</h5>
                       <div className="max-h-32 overflow-y-auto text-xs text-red-600 space-y-1">
                         {mergeResult.statistics.copyErrors.map((error, index) => (
+                          <div key={index}>{error}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {mergeResult.statistics.annotationErrors.length > 0 && (
+                    <div className="mt-4">
+                      <h5 className="font-medium text-red-700 mb-2">Annotation Errors:</h5>
+                      <div className="max-h-32 overflow-y-auto text-xs text-red-600 space-y-1">
+                        {mergeResult.statistics.annotationErrors.map((error, index) => (
                           <div key={index}>{error}</div>
                         ))}
                       </div>
@@ -533,9 +712,10 @@ export default function DatasetMerge({ datasets, onMergeComplete, onClose }: Dat
         </div>
 
         {/* Footer */}
-        <div className="flex justify-between items-center p-6 border-t bg-gray-50">
+        {currentStep !== 2.5 && (
+          <div className="flex justify-between items-center p-6 border-t bg-gray-50">
           <div>
-            {currentStep > 1 && currentStep < 3 && (
+            {currentStep > 1 && currentStep < 3 && currentStep !== 2.5 && (
               <button
                 onClick={() => setCurrentStep(currentStep - 1)}
                 className="px-4 py-2 text-gray-600 hover:text-gray-800"
@@ -546,7 +726,9 @@ export default function DatasetMerge({ datasets, onMergeComplete, onClose }: Dat
           </div>
           
           <div className="flex gap-3">
-            {currentStep === 3 ? (
+            {currentStep === 3 && !mergeResult ? (
+              <div className="text-sm text-gray-500">Processing merge...</div>
+            ) : currentStep >= 4 ? (
               <>
                 <button
                   onClick={resetForm}
@@ -578,11 +760,19 @@ export default function DatasetMerge({ datasets, onMergeComplete, onClose }: Dat
                   Cancel
                 </button>
                 <button
-                  onClick={handleMerge}
-                  disabled={!canProceed() || isMerging}
+                  onClick={handleAnalyzeMerge}
+                  disabled={!canProceed() || isAnalyzing}
                   className="px-6 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
                 >
-                  {isMerging ? (
+                  {isAnalyzing ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Analyzing...
+                    </>
+                  ) : isMerging ? (
                     <>
                       <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -591,13 +781,14 @@ export default function DatasetMerge({ datasets, onMergeComplete, onClose }: Dat
                       Merging...
                     </>
                   ) : (
-                    'Start Merge'
+                    'Analyze & Start Merge'
                   )}
                 </button>
               </>
             )}
           </div>
         </div>
+        )}
       </div>
     </div>
   );
