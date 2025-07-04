@@ -3,8 +3,7 @@ import { prisma } from "@/lib/prisma";
 
 interface AnalyzeMergeRequest {
   sourceDatasetIds: number[];
-  targetDatasetId?: number;
-  mergeStrategy: "create_new" | "merge_into_existing";
+  mergeStrategy: "create_new";
   categoryMergeStrategy:
     | "keep_separate"
     | "merge_by_name"
@@ -27,12 +26,7 @@ interface CategoryConflict {
 export async function POST(request: Request) {
   try {
     const body: AnalyzeMergeRequest = await request.json();
-    const {
-      sourceDatasetIds,
-      targetDatasetId,
-      mergeStrategy,
-      categoryMergeStrategy,
-    } = body;
+    const { sourceDatasetIds, categoryMergeStrategy } = body;
 
     // Get source datasets with categories and annotation counts
     const sourceDatasets = await prisma.dataset.findMany({
@@ -48,30 +42,6 @@ export async function POST(request: Request) {
       },
     });
 
-    // Get target dataset categories if merging into existing
-    let targetCategories: Array<{
-      id: number;
-      name: string;
-      cocoId: number;
-      datasetId: number;
-      _count: { annotations: number };
-    }> = [];
-    if (mergeStrategy === "merge_into_existing" && targetDatasetId) {
-      const targetDataset = await prisma.dataset.findUnique({
-        where: { id: targetDatasetId },
-        include: {
-          categories: {
-            include: {
-              _count: {
-                select: { annotations: true },
-              },
-            },
-          },
-        },
-      });
-      targetCategories = targetDataset?.categories || [];
-    }
-
     // Analyze category conflicts
     const categoryMap = new Map<string, CategoryConflict>();
 
@@ -84,18 +54,6 @@ export async function POST(request: Request) {
       datasetName: string;
       annotationCount: number;
     }> = [];
-
-    // Add target categories if merging into existing
-    for (const category of targetCategories) {
-      allCategories.push({
-        id: category.id,
-        name: category.name,
-        cocoId: category.cocoId,
-        datasetId: category.datasetId,
-        datasetName: "Target Dataset",
-        annotationCount: category._count.annotations,
-      });
-    }
 
     // Add all source categories to the analysis
     for (const dataset of sourceDatasets) {

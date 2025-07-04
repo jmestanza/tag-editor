@@ -91,10 +91,8 @@ interface MergeResult {
 
 export default function DatasetMerge({ datasets, onMergeComplete, onClose }: DatasetMergeProps) {
   const [selectedDatasets, setSelectedDatasets] = useState<number[]>([]);
-  const [targetDatasetId, setTargetDatasetId] = useState<number | null>(null);
   const [newDatasetName, setNewDatasetName] = useState('');
   const [newDatasetDescription, setNewDatasetDescription] = useState('');
-  const [mergeStrategy, setMergeStrategy] = useState<'create_new' | 'merge_into_existing'>('create_new');
   const [categoryMergeStrategy, setCategoryMergeStrategy] = useState<'keep_separate' | 'merge_by_name' | 'prefix_with_dataset'>('merge_by_name');
   const [handleDuplicateImages, setHandleDuplicateImages] = useState<'skip' | 'rename' | 'overwrite' | 'keep_best_annotated'>('rename');
   const [isMerging, setIsMerging] = useState(false);
@@ -105,13 +103,13 @@ export default function DatasetMerge({ datasets, onMergeComplete, onClose }: Dat
 
   // Auto-generate dataset name when datasets are selected
   useEffect(() => {
-    if (selectedDatasets.length >= 2 && mergeStrategy === 'create_new') {
+    if (selectedDatasets.length >= 2) {
       const selectedNames = selectedDatasets
         .map(id => datasets.find(d => d.id === id)?.name)
         .filter(Boolean);
       setNewDatasetName(`Merged: ${selectedNames.join(' + ')}`);
     }
-  }, [selectedDatasets, datasets, mergeStrategy]);
+  }, [selectedDatasets, datasets]);
 
   const handleDatasetToggle = (datasetId: number) => {
     setSelectedDatasets(prev => 
@@ -132,17 +130,14 @@ export default function DatasetMerge({ datasets, onMergeComplete, onClose }: Dat
 
   const canProceed = () => {
     if (selectedDatasets.length < 2) return false;
-    if (mergeStrategy === 'create_new' && !newDatasetName.trim()) return false;
-    if (mergeStrategy === 'merge_into_existing' && !targetDatasetId) return false;
+    if (!newDatasetName.trim()) return false;
     return true;
   };
 
   const resetForm = () => {
     setSelectedDatasets([]);
-    setTargetDatasetId(null);
     setNewDatasetName('');
     setNewDatasetDescription('');
-    setMergeStrategy('create_new');
     setCategoryMergeStrategy('merge_by_name');
     setHandleDuplicateImages('rename');
     setMergeResult(null);
@@ -160,8 +155,7 @@ export default function DatasetMerge({ datasets, onMergeComplete, onClose }: Dat
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sourceDatasetIds: selectedDatasets,
-          targetDatasetId,
-          mergeStrategy,
+          mergeStrategy: 'create_new',
           categoryMergeStrategy,
         }),
       });
@@ -202,10 +196,9 @@ export default function DatasetMerge({ datasets, onMergeComplete, onClose }: Dat
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sourceDatasetIds: selectedDatasets,
-          targetDatasetId,
           newDatasetName,
           newDatasetDescription,
-          mergeStrategy,
+          mergeStrategy: 'create_new',
           categoryMergeStrategy,
           handleDuplicateImages,
           categoryMappingDecisions: categoryDecisions,
@@ -349,86 +342,34 @@ export default function DatasetMerge({ datasets, onMergeComplete, onClose }: Dat
               <div>
                 <h3 className="text-lg font-semibold mb-4">Configure Merge Settings</h3>
                 
-                {/* Merge Strategy */}
+                {/* New Dataset Form */}
                 <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Merge Strategy
-                    </label>
-                    <div className="space-y-2">
-                      <label className="flex items-center">
-                        <input
-                          type="radio"
-                          value="create_new"
-                          checked={mergeStrategy === 'create_new'}
-                          onChange={(e) => setMergeStrategy(e.target.value as 'create_new')}
-                          className="mr-2"
-                        />
-                        <span>Create a new merged dataset</span>
-                      </label>
-                      <label className="flex items-center">
-                        <input
-                          type="radio"
-                          value="merge_into_existing"
-                          checked={mergeStrategy === 'merge_into_existing'}
-                          onChange={(e) => setMergeStrategy(e.target.value as 'merge_into_existing')}
-                          className="mr-2"
-                        />
-                        <span>Merge into an existing dataset</span>
-                      </label>
-                    </div>
-                  </div>
-
-                  {mergeStrategy === 'create_new' && (
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          New Dataset Name *
-                        </label>
-                        <input
-                          type="text"
-                          value={newDatasetName}
-                          onChange={(e) => setNewDatasetName(e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          placeholder="Enter name for merged dataset"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Description (optional)
-                        </label>
-                        <textarea
-                          value={newDatasetDescription}
-                          onChange={(e) => setNewDatasetDescription(e.target.value)}
-                          rows={3}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          placeholder="Enter description for merged dataset"
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {mergeStrategy === 'merge_into_existing' && (
+                  <div className="space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Target Dataset *
+                        New Dataset Name *
                       </label>
-                      <select
-                        value={targetDatasetId || ''}
-                        onChange={(e) => setTargetDatasetId(e.target.value ? parseInt(e.target.value) : null)}
+                      <input
+                        type="text"
+                        value={newDatasetName}
+                        onChange={(e) => setNewDatasetName(e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="">Select target dataset...</option>
-                        {datasets
-                          .filter(d => !selectedDatasets.includes(d.id))
-                          .map(dataset => (
-                            <option key={dataset.id} value={dataset.id}>
-                              {dataset.name || 'Unnamed Dataset'} ({dataset._count.images} images)
-                            </option>
-                          ))}
-                      </select>
+                        placeholder="Enter name for merged dataset"
+                      />
                     </div>
-                  )}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Description (optional)
+                      </label>
+                      <textarea
+                        value={newDatasetDescription}
+                        onChange={(e) => setNewDatasetDescription(e.target.value)}
+                        rows={3}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="Enter description for merged dataset"
+                      />
+                    </div>
+                  </div>
 
                   {/* Category Merge Strategy */}
                   <div>
