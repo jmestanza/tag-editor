@@ -111,9 +111,9 @@ export async function POST(request: Request) {
       }
     }
 
-    // Group categories by name and COCO ID to find conflicts
+    // Group categories by NAME ONLY to find conflicts (COCO ID is irrelevant for conflicts)
     for (const category of allCategories) {
-      const key = `${category.name}_${category.cocoId}`;
+      const key = category.name; // Only use name for conflict detection
 
       if (!categoryMap.has(key)) {
         categoryMap.set(key, {
