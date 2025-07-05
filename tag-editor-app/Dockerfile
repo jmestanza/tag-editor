@@ -17,7 +17,7 @@ RUN npx prisma generate
 RUN npm run build
 
 ENV PORT=3000
-ENV NODE_OPTIONS="--max-old-space-size=3072"
+ENV NODE_OPTIONS="--max-old-space-size=6144"
 EXPOSE 3000
 
 CMD ["npm", "start"]

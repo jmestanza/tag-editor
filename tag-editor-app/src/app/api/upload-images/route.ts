@@ -7,11 +7,23 @@ import {
   generateAndUploadThumbnail,
 } from "@/lib/minio";
 
+// Configure the route for large file uploads
+export const runtime = "nodejs";
+export const maxDuration = 300; // 5 minutes
+export const dynamic = "force-dynamic";
+
 export async function POST(request: Request) {
+  let uploadedFiles = [];
+  let errors = [];
+
   try {
     const formData = await request.formData();
     const datasetId = formData.get("datasetId") as string;
     const files = formData.getAll("images") as File[];
+
+    console.log(
+      `Starting upload for dataset ${datasetId} with ${files.length} files`
+    );
 
     if (!datasetId) {
       return NextResponse.json(
@@ -39,10 +51,13 @@ export async function POST(request: Request) {
     // Initialize MinIO bucket
     await initializeBucket();
 
-    const uploadedFiles = [];
-    const errors = [];
+    uploadedFiles = [];
+    errors = [];
 
-    for (const file of files) {
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      console.log(`Processing file ${i + 1}/${files.length}: ${file.name}`);
+
       try {
         // Convert file to buffer
         const bytes = await file.arrayBuffer();
@@ -89,6 +104,11 @@ export async function POST(request: Request) {
           fileName: file.name,
           path: proxyUrl,
         });
+
+        // Force garbage collection every 100 files
+        if (i % 100 === 0 && global.gc) {
+          global.gc();
+        }
       } catch (error) {
         console.error(`Error uploading ${file.name}:`, error);
         errors.push({

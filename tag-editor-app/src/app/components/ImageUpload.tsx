@@ -39,34 +39,64 @@ export default function ImageUpload({
       let successCount = 0;
       const errors: string[] = [];
 
-      // Upload files one by one to track progress
-      for (let i = 0; i < fileArray.length; i++) {
-        const file = fileArray[i];
-        setUploadProgress({ 
-          current: i, 
-          total: fileArray.length, 
-          currentFile: file.name 
-        });
+      // Process files in smaller batches to avoid memory issues
+      const BATCH_SIZE = 20; // Process 20 files at a time
+      const batches = [];
+      
+      for (let i = 0; i < fileArray.length; i += BATCH_SIZE) {
+        batches.push(fileArray.slice(i, i + BATCH_SIZE));
+      }
 
-        try {
-          const formData = new FormData();
-          formData.append('datasetId', datasetId.toString());
-          formData.append('images', file);
-
-          const response = await fetch('/api/upload-images', {
-            method: 'POST',
-            body: formData,
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const batch = batches[batchIndex];
+        
+        // Upload batch concurrently (but limit to avoid overwhelming server)
+        const batchPromises = batch.map(async (file, fileIndex) => {
+          const absoluteIndex = batchIndex * BATCH_SIZE + fileIndex;
+          
+          setUploadProgress({ 
+            current: absoluteIndex, 
+            total: fileArray.length, 
+            currentFile: file.name 
           });
 
-          const result = await response.json();
+          try {
+            const formData = new FormData();
+            formData.append('datasetId', datasetId.toString());
+            formData.append('images', file);
 
-          if (!response.ok) {
-            errors.push(`${file.name}: ${result.error || 'Upload failed'}`);
-          } else {
-            successCount++;
+            const response = await fetch('/api/upload-images', {
+              method: 'POST',
+              body: formData,
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+              return { success: false, error: `${file.name}: ${result.error || 'Upload failed'}` };
+            } else {
+              return { success: true, fileName: file.name };
+            }
+          } catch (error) {
+            return { success: false, error: `${file.name}: ${error instanceof Error ? error.message : 'Upload failed'}` };
           }
-        } catch (error) {
-          errors.push(`${file.name}: ${error instanceof Error ? error.message : 'Upload failed'}`);
+        });
+
+        // Wait for current batch to complete
+        const batchResults = await Promise.all(batchPromises);
+        
+        // Process results
+        batchResults.forEach(result => {
+          if (result.success) {
+            successCount++;
+          } else {
+            errors.push(result.error || 'Unknown error');
+          }
+        });
+
+        // Add a small delay between batches to prevent overwhelming the server
+        if (batchIndex < batches.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
         }
       }
 
