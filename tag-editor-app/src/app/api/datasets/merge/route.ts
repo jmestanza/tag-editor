@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getMinioClient, BUCKET_NAME } from "@/lib/minio";
 import path from "path";
+import {
+  initializeMergeProgress,
+  updateMergeProgress,
+  completeMergeProgress,
+  cleanupMergeProgress,
+} from "@/lib/merge-progress";
 
 interface CategoryMappingDecision {
   conflictIndex: number;
@@ -47,6 +53,11 @@ function getContentTypeFromExtension(extension: string): string {
 }
 
 export async function POST(request: Request) {
+  // Generate unique merge ID for progress tracking
+  const mergeId = `merge_${Date.now()}_${Math.random()
+    .toString(36)
+    .substring(2)}`;
+
   try {
     const body: MergeRequest = await request.json();
     const {
@@ -58,6 +69,8 @@ export async function POST(request: Request) {
     } = body;
 
     // Get source datasets with all their data
+    updateMergeProgress(mergeId, 0, 100, "Loading source datasets...");
+
     const sourceDatasets = await prisma.dataset.findMany({
       where: { id: { in: sourceDatasetIds } },
       include: {
@@ -83,11 +96,41 @@ export async function POST(request: Request) {
     });
 
     if (sourceDatasets.length !== sourceDatasetIds.length) {
+      completeMergeProgress(mergeId, false, {
+        error: "Some source datasets not found",
+      });
       return NextResponse.json(
-        { error: "Some source datasets not found" },
+        { error: "Some source datasets not found", mergeId },
         { status: 404 }
       );
     }
+
+    // Calculate total operations for progress tracking
+    const totalImages = sourceDatasets.reduce(
+      (sum, d) => sum + d.images.length,
+      0
+    );
+    const totalCategories = sourceDatasets.reduce(
+      (sum, d) => sum + d.categories.length,
+      0
+    );
+    const totalAnnotations = sourceDatasets.reduce(
+      (sum, d) =>
+        sum +
+        d.images.reduce((imgSum, img) => imgSum + img.annotations.length, 0),
+      0
+    );
+
+    const totalOperations =
+      totalCategories + totalImages + totalAnnotations + 3; // +3 for setup steps
+    initializeMergeProgress(mergeId, totalOperations);
+
+    updateMergeProgress(
+      mergeId,
+      1,
+      totalOperations,
+      "Creating merged dataset..."
+    );
 
     // Create the new merged dataset
     const newDataset = await prisma.dataset.create({
@@ -100,6 +143,13 @@ export async function POST(request: Request) {
             .join(", ")}`,
       },
     });
+
+    updateMergeProgress(
+      mergeId,
+      2,
+      totalOperations,
+      "Setting up merge statistics..."
+    );
 
     const statistics = {
       totalSourceDatasets: sourceDatasets.length,
@@ -132,11 +182,26 @@ export async function POST(request: Request) {
     let nextCategoryCocoId = 1;
     let nextImageCocoId = 1;
     let nextAnnotationCocoId = 1;
+    let currentOperation = 3; // Start after setup operations
 
     // Process categories first
+    updateMergeProgress(
+      mergeId,
+      currentOperation,
+      totalOperations,
+      "Processing categories..."
+    );
+
     for (const dataset of sourceDatasets) {
       for (const category of dataset.categories) {
         let newCategoryId: number;
+
+        updateMergeProgress(
+          mergeId,
+          currentOperation++,
+          totalOperations,
+          `Processing category: ${category.name} from ${dataset.name}`
+        );
 
         if (categoryMergeStrategy === "merge_by_name") {
           // Check if we already have a category with this name
@@ -201,8 +266,23 @@ export async function POST(request: Request) {
       }
     >();
 
+    updateMergeProgress(
+      mergeId,
+      currentOperation,
+      totalOperations,
+      "Processing images and files..."
+    );
+
     for (const dataset of sourceDatasets) {
       for (const image of dataset.images) {
+        updateMergeProgress(
+          mergeId,
+          currentOperation++,
+          totalOperations,
+          `Processing image: ${image.fileName || `image_${image.id}`} from ${
+            dataset.name
+          }`
+        );
         const fileName = image.filePath
           ? path.basename(image.filePath)
           : `image_${image.id}`;
@@ -379,6 +459,13 @@ export async function POST(request: Request) {
 
           // Copy annotations
           for (const annotation of image.annotations) {
+            updateMergeProgress(
+              mergeId,
+              currentOperation++,
+              totalOperations,
+              `Processing annotation for image: ${newFileName}`
+            );
+
             const newCategoryId = categoryMappings.get(annotation.categoryId);
             if (!newCategoryId) {
               statistics.annotationsSkippedNoCategory++;
@@ -427,19 +514,41 @@ export async function POST(request: Request) {
     statistics.totalAnnotationsProcessed =
       statistics.annotationsCopied + statistics.annotationsCopyFailed;
 
+    updateMergeProgress(
+      mergeId,
+      totalOperations,
+      totalOperations,
+      "Merge completed successfully!"
+    );
+    completeMergeProgress(mergeId, true, {
+      datasetId: newDataset.id,
+      statistics,
+      duplicateWarnings,
+    });
+
+    // Schedule cleanup
+    cleanupMergeProgress(mergeId);
+
     return NextResponse.json({
       success: true,
       message: `Successfully merged ${sourceDatasets.length} datasets into "${newDatasetName}"`,
       datasetId: newDataset.id,
+      mergeId,
       statistics,
       duplicateWarnings,
     });
   } catch (error) {
     console.error("Failed to merge datasets:", error);
+    completeMergeProgress(mergeId, false, {
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+    cleanupMergeProgress(mergeId);
+
     return NextResponse.json(
       {
         error: "Failed to merge datasets",
         details: error instanceof Error ? error.message : "Unknown error",
+        mergeId,
       },
       { status: 500 }
     );

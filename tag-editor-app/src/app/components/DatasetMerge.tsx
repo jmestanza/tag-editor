@@ -64,6 +64,7 @@ interface MergeResult {
   success: boolean;
   message: string;
   datasetId?: number;
+  mergeId?: string;
   statistics?: {
     totalSourceDatasets: number;
     totalImagesProcessed: number;
@@ -89,6 +90,22 @@ interface MergeResult {
   }>;
 }
 
+interface MergeProgress {
+  total: number;
+  current: number;
+  currentOperation: string;
+  percentage: number;
+  errors: string[];
+  completed: boolean;
+  success?: boolean;
+  result?: {
+    datasetId?: number;
+    statistics?: MergeResult['statistics'];
+    duplicateWarnings?: MergeResult['duplicateWarnings'];
+    error?: string;
+  };
+}
+
 export default function DatasetMerge({ datasets, onMergeComplete, onClose }: DatasetMergeProps) {
   const [selectedDatasets, setSelectedDatasets] = useState<number[]>([]);
   const [newDatasetName, setNewDatasetName] = useState('');
@@ -100,6 +117,8 @@ export default function DatasetMerge({ datasets, onMergeComplete, onClose }: Dat
   const [currentStep, setCurrentStep] = useState(1);
   const [mergeAnalysis, setMergeAnalysis] = useState<MergeAnalysis | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [mergeProgress, setMergeProgress] = useState<MergeProgress | null>(null);
+  const [currentMergeId, setCurrentMergeId] = useState<string | null>(null);
 
   // Auto-generate dataset name when datasets are selected
   useEffect(() => {
@@ -110,6 +129,55 @@ export default function DatasetMerge({ datasets, onMergeComplete, onClose }: Dat
       setNewDatasetName(`Merged: ${selectedNames.join(' + ')}`);
     }
   }, [selectedDatasets, datasets]);
+
+  // Poll merge progress
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout;
+
+    if (currentMergeId && isMerging) {
+      intervalId = setInterval(async () => {
+        try {
+          const response = await fetch(`/api/datasets/merge-progress?mergeId=${currentMergeId}`);
+          if (response.ok) {
+            const progress: MergeProgress = await response.json();
+            setMergeProgress(progress);
+
+            if (progress.completed) {
+              clearInterval(intervalId);
+              setIsMerging(false);
+              
+              if (progress.success && progress.result) {
+                setMergeResult({
+                  success: true,
+                  message: `Successfully merged datasets`,
+                  datasetId: progress.result.datasetId,
+                  mergeId: currentMergeId,
+                  statistics: progress.result.statistics,
+                  duplicateWarnings: progress.result.duplicateWarnings,
+                });
+                onMergeComplete();
+              } else {
+                setMergeResult({
+                  success: false,
+                  message: progress.result?.error || 'Merge failed',
+                  mergeId: currentMergeId,
+                });
+              }
+              setCurrentStep(4);
+            }
+          }
+        } catch (error) {
+          console.error('Failed to fetch merge progress:', error);
+        }
+      }, 1000); // Poll every second
+    }
+
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, [currentMergeId, isMerging, onMergeComplete]);
 
   const handleDatasetToggle = (datasetId: number) => {
     setSelectedDatasets(prev => 
@@ -143,6 +211,8 @@ export default function DatasetMerge({ datasets, onMergeComplete, onClose }: Dat
     setMergeResult(null);
     setCurrentStep(1);
     setMergeAnalysis(null);
+    setMergeProgress(null);
+    setCurrentMergeId(null);
   };
 
   const handleAnalyzeMerge = async () => {
@@ -190,6 +260,9 @@ export default function DatasetMerge({ datasets, onMergeComplete, onClose }: Dat
 
   const performMerge = async (categoryDecisions: CategoryMappingDecision[]) => {
     setIsMerging(true);
+    setMergeProgress(null);
+    setCurrentMergeId(null);
+    
     try {
       const response = await fetch('/api/datasets/merge', {
         method: 'POST',
@@ -205,16 +278,30 @@ export default function DatasetMerge({ datasets, onMergeComplete, onClose }: Dat
         }),
       });
 
+      const result = await response.json();
+
       if (!response.ok) {
-        throw new Error('Merge failed');
+        throw new Error(result.error || 'Merge failed');
       }
 
-      const result = await response.json();
-      setMergeResult(result);
-      setCurrentStep(4);
-      
-      if (result.success) {
+      // If the merge was successful and completed immediately (no progress tracking)
+      if (result.success && !result.mergeId) {
+        setMergeResult(result);
+        setCurrentStep(4);
         onMergeComplete();
+        setIsMerging(false);
+      } else if (result.mergeId) {
+        // Progress tracking is enabled, start polling
+        setCurrentMergeId(result.mergeId);
+        // The useEffect will handle the polling
+      } else {
+        // Handle error case
+        setMergeResult({
+          success: false,
+          message: result.error || 'Unknown error occurred',
+        });
+        setCurrentStep(4);
+        setIsMerging(false);
       }
     } catch (error) {
       console.error('Merge failed:', error);
@@ -223,7 +310,6 @@ export default function DatasetMerge({ datasets, onMergeComplete, onClose }: Dat
         message: error instanceof Error ? error.message : 'Unknown error occurred',
       });
       setCurrentStep(4);
-    } finally {
       setIsMerging(false);
     }
   };
@@ -251,7 +337,7 @@ export default function DatasetMerge({ datasets, onMergeComplete, onClose }: Dat
               <div className={`w-8 h-8 rounded-full flex items-center justify-center ${currentStep >= 1 ? 'bg-blue-600 text-white' : 'bg-gray-300'}`}>
                 1
               </div>
-              <span className="ml-2 font-medium">Select Datasets</span>
+              <span className="ml-2 font-medium">Select</span>
             </div>
             <div className="w-8 h-px bg-gray-300"></div>
             <div className={`flex items-center ${currentStep >= 2 ? 'text-blue-600' : 'text-gray-400'}`}>
@@ -261,9 +347,16 @@ export default function DatasetMerge({ datasets, onMergeComplete, onClose }: Dat
               <span className="ml-2 font-medium">Configure</span>
             </div>
             <div className="w-8 h-px bg-gray-300"></div>
-            <div className={`flex items-center ${currentStep >= 3 ? 'text-green-600' : 'text-gray-400'}`}>
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${currentStep >= 3 ? 'bg-green-600 text-white' : 'bg-gray-300'}`}>
+            <div className={`flex items-center ${currentStep >= 3 ? 'text-orange-600' : 'text-gray-400'}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${currentStep >= 3 ? 'bg-orange-600 text-white' : 'bg-gray-300'}`}>
                 3
+              </div>
+              <span className="ml-2 font-medium">Merge</span>
+            </div>
+            <div className="w-8 h-px bg-gray-300"></div>
+            <div className={`flex items-center ${currentStep >= 4 ? 'text-green-600' : 'text-gray-400'}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${currentStep >= 4 ? 'bg-green-600 text-white' : 'bg-gray-300'}`}>
+                4
               </div>
               <span className="ml-2 font-medium">Complete</span>
             </div>
@@ -490,6 +583,68 @@ export default function DatasetMerge({ datasets, onMergeComplete, onClose }: Dat
               onMappingComplete={handleCategoryMappingComplete}
               onBack={() => setCurrentStep(2)}
             />
+          )}
+
+          {currentStep === 3 && !mergeResult && (
+            <div className="space-y-6">
+              <div className="text-center">
+                <h3 className="text-lg font-semibold mb-4">Merging Datasets</h3>
+                <p className="text-gray-600 mb-6">
+                  Please wait while we merge your selected datasets. This process may take a few minutes depending on the size of your datasets.
+                </p>
+              </div>
+
+              {mergeProgress && (
+                <div className="max-w-2xl mx-auto space-y-4">
+                  {/* Progress Bar */}
+                  <div className="bg-gray-200 rounded-full h-3 overflow-hidden">
+                    <div 
+                      className="bg-blue-600 h-full transition-all duration-300 ease-out"
+                      style={{ width: `${Math.min(mergeProgress.percentage, 100)}%` }}
+                    ></div>
+                  </div>
+                  
+                  {/* Progress Text */}
+                  <div className="text-center space-y-2">
+                    <div className="font-medium text-gray-900">
+                      {mergeProgress.percentage}% Complete
+                    </div>
+                    <div className="text-sm text-gray-600">
+                      {mergeProgress.currentOperation}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      Step {mergeProgress.current} of {mergeProgress.total}
+                    </div>
+                  </div>
+
+                  {/* Error Messages */}
+                  {mergeProgress.errors.length > 0 && (
+                    <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+                      <div className="text-sm font-medium text-yellow-800 mb-2">
+                        Warnings:
+                      </div>
+                      <div className="text-xs text-yellow-700 space-y-1">
+                        {mergeProgress.errors.map((error, index) => (
+                          <div key={index}>• {error}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!mergeProgress && (
+                <div className="text-center">
+                  <div className="inline-flex items-center gap-3 text-gray-600">
+                    <svg className="animate-spin h-6 w-6" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Initializing merge process...
+                  </div>
+                </div>
+              )}
+            </div>
           )}
 
           {currentStep >= 3 && mergeResult && (
