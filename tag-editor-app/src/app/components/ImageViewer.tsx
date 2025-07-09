@@ -27,6 +27,7 @@ interface ImageViewerProps {
   onNavigateNext?: () => void; // Navigation callback for next image
   hasPrevious?: boolean; // Whether there's a previous image
   hasNext?: boolean; // Whether there's a next image
+  onImageDeleted?: () => void; // Callback for when image is deleted
 }
 
 const COLORS = [
@@ -46,7 +47,8 @@ export default function ImageViewer({
   onNavigatePrevious,
   onNavigateNext,
   hasPrevious = false,
-  hasNext = false
+  hasNext = false,
+  onImageDeleted
 }: ImageViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const modalCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -71,6 +73,8 @@ export default function ImageViewer({
   const [availableCategories, setAvailableCategories] = useState<Category[]>([]);
   const [showCategoryDialog, setShowCategoryDialog] = useState(false);
   const [pendingAnnotation, setPendingAnnotation] = useState<Omit<Annotation, 'category'> | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   
   // Enhanced zoom and pan state
   const [zoomLevel, setZoomLevel] = useState(1);
@@ -1041,6 +1045,44 @@ export default function ImageViewer({
     }
   };
 
+  const deleteImage = async () => {
+    if (!imageId) {
+      console.error('No imageId provided for deleting image');
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      const response = await fetch(`/api/images/delete?id=${imageId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to delete image: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      
+      if (result.success) {
+        // Call the callback to notify parent component about deletion
+        if (onImageDeleted) {
+          onImageDeleted();
+        }
+        setIsModalOpen(false);
+        setShowDeleteDialog(false);
+        console.log('Image deleted successfully');
+      } else {
+        throw new Error(result.error || 'Failed to delete image');
+      }
+    } catch (error) {
+      console.error('Error deleting image:', error);
+      // You might want to show a user-friendly error message here
+      alert('Failed to delete image. Please try again.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   // Modal canvas drawing effect
   useEffect(() => {
     // Only draw if modal is open, image is loaded, and we have editing annotations
@@ -1227,16 +1269,27 @@ export default function ImageViewer({
                   className="border border-gray-500 rounded"
                   style={{ maxWidth: '100%', height: 'auto' }}
                 />
-                {/* Edit button overlay */}
-                <button
-                  onClick={() => setIsModalOpen(true)}
-                  className="absolute top-4 right-4 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-lg flex items-center gap-2 text-sm font-medium"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                  </svg>
-                  Edit
-                </button>
+                {/* Edit and Delete button overlays */}
+                <div className="absolute top-4 right-4 flex gap-2">
+                  <button
+                    onClick={() => setIsModalOpen(true)}
+                    className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-lg flex items-center gap-2 text-sm font-medium"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => setShowDeleteDialog(true)}
+                    className="px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors shadow-lg flex items-center gap-2 text-sm font-medium"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    Delete
+                  </button>
+                </div>
               </>
             )}
           </div>
@@ -1621,6 +1674,16 @@ export default function ImageViewer({
 
                 <div className="flex gap-2 pt-4 border-t flex-shrink-0">
                   <button
+                    onClick={() => setShowDeleteDialog(true)}
+                    className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors flex items-center gap-2"
+                    title="Delete this image"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    Delete
+                  </button>
+                  <button
                     onClick={() => setIsModalOpen(false)}
                     className="flex-1 px-4 py-2 border border-gray-500 text-gray-800 rounded hover:bg-gray-200 transition-colors"
                   >
@@ -1687,6 +1750,53 @@ export default function ImageViewer({
                   Create New Category
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {showDeleteDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4 text-red-600">Delete Image</h3>
+            <p className="text-sm text-gray-700 mb-4">
+              Are you sure you want to delete <strong>{fileName}</strong>?
+            </p>
+            <p className="text-sm text-gray-600 mb-6">
+              This action will permanently delete:
+            </p>
+            <ul className="text-sm text-gray-600 mb-6 ml-4 space-y-1">
+              <li>• The image file and thumbnail from storage</li>
+              <li>• All {annotations.length} annotation{annotations.length !== 1 ? 's' : ''} for this image</li>
+              <li>• The image record from the database</li>
+            </ul>
+            <p className="text-sm text-red-600 mb-6 font-medium">
+              This action cannot be undone.
+            </p>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowDeleteDialog(false)}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded hover:bg-gray-50 transition-colors"
+                disabled={isDeleting}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={deleteImage}
+                disabled={isDeleting}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:bg-red-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+              >
+                {isDeleting ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    Deleting...
+                  </>
+                ) : (
+                  'Delete Image'
+                )}
+              </button>
             </div>
           </div>
         </div>

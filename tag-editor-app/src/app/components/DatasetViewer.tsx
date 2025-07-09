@@ -119,6 +119,28 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
     setDataset(updatedDataset);
   };
 
+  const handleImageDeleted = () => {
+    if (!dataset) return;
+    
+    // Remove the deleted image from the dataset
+    const updatedImages = dataset.images.filter((_, index) => index !== currentImageIndex);
+    
+    const updatedDataset = {
+      ...dataset,
+      images: updatedImages
+    };
+    
+    setDataset(updatedDataset);
+    
+    // Adjust current image index if necessary
+    if (updatedImages.length === 0) {
+      setCurrentImageIndex(0);
+    } else if (currentImageIndex >= updatedImages.length) {
+      setCurrentImageIndex(updatedImages.length - 1);
+    }
+    // If currentImageIndex is within bounds, it stays the same and will show the next image
+  };
+
   // Navigation functions for ImageViewer
   const handleNavigatePrevious = () => {
     if (currentImageIndex > 0) {
@@ -501,50 +523,73 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
       {/* Image Viewer */}
       {hasImages ? (
         <div className="space-y-4">
-          {/* Navigation */}
-          <div className="flex items-center justify-between bg-white rounded-lg shadow p-4">
-            <button
-              onClick={() => setCurrentImageIndex(Math.max(0, currentImageIndex - 1))}
-              disabled={currentImageIndex === 0}
-              className="px-4 py-2 bg-gray-600 text-white rounded disabled:bg-gray-300"
-            >
-              Previous
-            </button>
-            
-            <span className="text-gray-700">
-              Image {currentImageIndex + 1} of {dataset.images.length}
-            </span>
-            
-            <button
-              onClick={() => setCurrentImageIndex(Math.min(dataset.images.length - 1, currentImageIndex + 1))}
-              disabled={currentImageIndex === dataset.images.length - 1}
-              className="px-4 py-2 bg-gray-600 text-white rounded disabled:bg-gray-300"
-            >
-              Next
-            </button>
-          </div>
+          {hasImages ? (
+            <>
+              {/* Navigation */}
+              <div className="flex items-center justify-between bg-white rounded-lg shadow p-4">
+                <button
+                  onClick={() => setCurrentImageIndex(Math.max(0, currentImageIndex - 1))}
+                  disabled={currentImageIndex === 0}
+                  className="px-4 py-2 bg-gray-600 text-white rounded disabled:bg-gray-300"
+                >
+                  Previous
+                </button>
+                
+                <span className="text-gray-700">
+                  Image {currentImageIndex + 1} of {dataset.images.length}
+                </span>
+                
+                <button
+                  onClick={() => setCurrentImageIndex(Math.min(dataset.images.length - 1, currentImageIndex + 1))}
+                  disabled={currentImageIndex === dataset.images.length - 1}
+                  className="px-4 py-2 bg-gray-600 text-white rounded disabled:bg-gray-300"
+                >
+                  Next
+                </button>
+              </div>
 
-          {/* Current Image */}
-          <ImageViewer
-            imageSrc={
-              currentImage.filePath 
-                ? currentImage.filePath.startsWith('/') 
-                  ? currentImage.filePath  // Legacy local path
-                  : `/api/images/${currentImage.filePath}`  // MinIO object name
-                : `/uploads/${dataset.id}/${currentImage.fileName}`  // Fallback
-            }
-            imageWidth={currentImage.width}
-            imageHeight={currentImage.height}
-            annotations={currentImage.annotations}
-            fileName={currentImage.fileName}
-            imageId={currentImage.id}
-            datasetId={dataset.id}
-            onAnnotationsUpdated={handleAnnotationsUpdated}
-            onNavigatePrevious={handleNavigatePrevious}
-            onNavigateNext={handleNavigateNext}
-            hasPrevious={currentImageIndex > 0}
-            hasNext={currentImageIndex < dataset.images.length - 1}
-          />
+              {/* Current Image */}
+              <ImageViewer
+                imageSrc={
+                  currentImage.filePath 
+                    ? currentImage.filePath.startsWith('/') 
+                      ? currentImage.filePath  // Legacy local path
+                      : `/api/images/${currentImage.filePath}`  // MinIO object name
+                    : `/uploads/${dataset.id}/${currentImage.fileName}`  // Fallback
+                }
+                imageWidth={currentImage.width}
+                imageHeight={currentImage.height}
+                annotations={currentImage.annotations}
+                fileName={currentImage.fileName}
+                imageId={currentImage.id}
+                datasetId={dataset.id}
+                onAnnotationsUpdated={handleAnnotationsUpdated}
+                onNavigatePrevious={handleNavigatePrevious}
+                onNavigateNext={handleNavigateNext}
+                hasPrevious={currentImageIndex > 0}
+                hasNext={currentImageIndex < dataset.images.length - 1}
+                onImageDeleted={handleImageDeleted}
+              />
+            </>
+          ) : (
+            <div className="bg-white rounded-lg shadow p-8 text-center">
+              <div className="mb-4">
+                <svg className="mx-auto h-16 w-16 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 002 2v12a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No images in dataset</h3>
+              <p className="text-gray-500 mb-4">
+                This dataset doesn&apos;t contain any images yet. Upload some images to get started.
+              </p>
+              <button
+                onClick={() => setShowUpload(true)}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+              >
+                Upload Images
+              </button>
+            </div>
+          )}
 
           {/* Image Gallery */}
           <div className="bg-white rounded-lg shadow p-6">
