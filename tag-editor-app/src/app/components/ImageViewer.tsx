@@ -28,6 +28,8 @@ interface ImageViewerProps {
   hasPrevious?: boolean; // Whether there's a previous image
   hasNext?: boolean; // Whether there's a next image
   onImageDeleted?: () => void; // Callback for when image is deleted
+  isModalOpen?: boolean; // External modal state
+  setIsModalOpen?: (open: boolean) => void; // External modal state setter
 }
 
 const COLORS = [
@@ -48,7 +50,9 @@ export default function ImageViewer({
   onNavigateNext,
   hasPrevious = false,
   hasNext = false,
-  onImageDeleted
+  onImageDeleted,
+  isModalOpen: externalIsModalOpen,
+  setIsModalOpen: externalSetIsModalOpen
 }: ImageViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const modalCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -58,7 +62,12 @@ export default function ImageViewer({
   const [displayScale, setDisplayScale] = useState(1);
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   const [imageLoaded, setImageLoaded] = useState(false);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  
+  // Use external modal state if provided, otherwise fall back to internal state
+  const [internalIsModalOpen, setInternalIsModalOpen] = useState(false);
+  const isModalOpen = externalIsModalOpen !== undefined ? externalIsModalOpen : internalIsModalOpen;
+  const setIsModalOpen = externalSetIsModalOpen || setInternalIsModalOpen;
+  
   const [editingAnnotations, setEditingAnnotations] = useState<Annotation[]>([]);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<number | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);

@@ -61,6 +61,8 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
   const [isGeneratingThumbnails, setIsGeneratingThumbnails] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(8);
+  const [pendingNavigationIntent, setPendingNavigationIntent] = useState<'next' | 'previous' | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   useEffect(() => {
     const loadDataset = async () => {
@@ -82,6 +84,18 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
     
     loadDataset();
   }, [datasetId, currentPage, pageSize]);
+
+  // Handle pending navigation intent after page loads
+  useEffect(() => {
+    if (dataset && !loading && pendingNavigationIntent) {
+      if (pendingNavigationIntent === 'next') {
+        setCurrentImageIndex(0); // First image of the new page
+      } else if (pendingNavigationIntent === 'previous') {
+        setCurrentImageIndex(Math.max(0, dataset.images.length - 1)); // Last image of the new page
+      }
+      setPendingNavigationIntent(null); // Clear the pending intent
+    }
+  }, [dataset, loading, pendingNavigationIntent]);
 
   const handleUploadComplete = () => {
     // Refresh dataset data after upload
@@ -145,8 +159,8 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
       setCurrentImageIndex(currentImageIndex - 1);
     } else if (hasGalleryPrevious) {
       // Go to previous page and select the last image
+      setPendingNavigationIntent('previous');
       setCurrentPage(currentPage - 1);
-      setCurrentImageIndex(pageSize - 1);
     }
   };
 
@@ -155,8 +169,8 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
       setCurrentImageIndex(currentImageIndex + 1);
     } else if (hasGalleryNext) {
       // Go to next page and select the first image
+      setPendingNavigationIntent('next');
       setCurrentPage(currentPage + 1);
-      setCurrentImageIndex(0);
     }
   };  const handleExportAnnotations = async () => {
     if (!dataset) return;
@@ -585,6 +599,8 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
                 hasPrevious={currentImageIndex > 0 || hasGalleryPrevious}
                 hasNext={currentImageIndex < dataset.images.length - 1 || hasGalleryNext}
                 onImageDeleted={handleImageDeleted}
+                isModalOpen={isModalOpen}
+                setIsModalOpen={setIsModalOpen}
               />
             </>
           ) : (
