@@ -32,6 +32,14 @@ interface Dataset {
   description?: string;
   images: Image[];
   categories: Category[];
+  pagination?: {
+    page: number;
+    pageSize: number;
+    totalPages: number;
+    totalImages: number;
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+  };
   expectedImageCount?: number; // Total expected images for this dataset
   uploadedImageCount?: number; // Images that have been uploaded
 }
@@ -51,13 +59,14 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
   const [editedName, setEditedName] = useState('');
   const [isSavingName, setIsSavingName] = useState(false);
   const [isGeneratingThumbnails, setIsGeneratingThumbnails] = useState(false);
-  const [galleryStartIndex, setGalleryStartIndex] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(8);
 
   useEffect(() => {
     const loadDataset = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`/api/datasets?id=${datasetId}`);
+        const response = await fetch(`/api/datasets?id=${datasetId}&page=${currentPage}&pageSize=${pageSize}`);
         if (!response.ok) {
           throw new Error('Failed to fetch dataset');
         }
@@ -72,24 +81,13 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
     };
     
     loadDataset();
-  }, [datasetId]);
-
-  // Update gallery start index when current image changes (e.g., via navigation)
-  useEffect(() => {
-    if (dataset && dataset.images.length > 0) {
-      const IMAGES_PER_ROW = 8;
-      if (currentImageIndex < galleryStartIndex || currentImageIndex >= galleryStartIndex + IMAGES_PER_ROW) {
-        const newStartIndex = Math.floor(currentImageIndex / IMAGES_PER_ROW) * IMAGES_PER_ROW;
-        setGalleryStartIndex(newStartIndex);
-      }
-    }
-  }, [currentImageIndex, dataset]);
+  }, [datasetId, currentPage, pageSize]);
 
   const handleUploadComplete = () => {
     // Refresh dataset data after upload
     const refreshDataset = async () => {
       try {
-        const response = await fetch(`/api/datasets?id=${datasetId}`);
+        const response = await fetch(`/api/datasets?id=${datasetId}&page=${currentPage}&pageSize=${pageSize}`);
         if (response.ok) {
           const data = await response.json();
           setDataset(data);
@@ -141,16 +139,24 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
     // If currentImageIndex is within bounds, it stays the same and will show the next image
   };
 
-  // Navigation functions for ImageViewer
+  // Navigation functions for ImageViewer - Updated for pagination
   const handleNavigatePrevious = () => {
     if (currentImageIndex > 0) {
       setCurrentImageIndex(currentImageIndex - 1);
+    } else if (hasGalleryPrevious) {
+      // Go to previous page and select the last image
+      setCurrentPage(currentPage - 1);
+      setCurrentImageIndex(pageSize - 1);
     }
   };
 
   const handleNavigateNext = () => {
     if (dataset && currentImageIndex < dataset.images.length - 1) {
       setCurrentImageIndex(currentImageIndex + 1);
+    } else if (hasGalleryNext) {
+      // Go to next page and select the first image
+      setCurrentPage(currentPage + 1);
+      setCurrentImageIndex(0);
     }
   };  const handleExportAnnotations = async () => {
     if (!dataset) return;
@@ -260,7 +266,7 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
       alert(`Generated thumbnails for ${result.processed} images`);
       
       // Refresh dataset to get updated thumbnail paths
-      const refreshResponse = await fetch(`/api/datasets?id=${dataset.id}`);
+      const refreshResponse = await fetch(`/api/datasets?id=${dataset.id}&page=${currentPage}&pageSize=${pageSize}`);
       if (refreshResponse.ok) {
         const refreshedData = await refreshResponse.json();
         setDataset(refreshedData);
@@ -303,23 +309,33 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
   const remainingCount = expectedCount > uploadedCount ? expectedCount - uploadedCount : 0;
   const uploadProgress = expectedCount > 0 ? (uploadedCount / expectedCount) * 100 : 0;
   
-  // Gallery pagination
-  const IMAGES_PER_ROW = 8;
-  const galleryImages = dataset.images.slice(galleryStartIndex, galleryStartIndex + IMAGES_PER_ROW);
-  const hasGalleryPrevious = galleryStartIndex > 0;
-  const hasGalleryNext = galleryStartIndex + IMAGES_PER_ROW < dataset.images.length;
+  // Gallery pagination (now server-side)
+  const galleryImages = dataset.images; // Already paginated from server
+  const hasGalleryPrevious = dataset.pagination?.hasPreviousPage ?? false;
+  const hasGalleryNext = dataset.pagination?.hasNextPage ?? false;
   
   const handleGalleryPrevious = () => {
-    setGalleryStartIndex(Math.max(0, galleryStartIndex - IMAGES_PER_ROW));
+    if (hasGalleryPrevious) {
+      setCurrentPage(currentPage - 1);
+      setCurrentImageIndex(0); // Reset to first image of new page
+    }
   };
   
   const handleGalleryNext = () => {
-    setGalleryStartIndex(Math.min(dataset.images.length - IMAGES_PER_ROW, galleryStartIndex + IMAGES_PER_ROW));
+    if (hasGalleryNext) {
+      setCurrentPage(currentPage + 1);
+      setCurrentImageIndex(0); // Reset to first image of new page
+    }
+  };
+  
+  const handlePageSizeChange = (newPageSize: number) => {
+    setPageSize(newPageSize);
+    setCurrentPage(1); // Reset to first page
+    setCurrentImageIndex(0); // Reset to first image
   };
   
   const handleGalleryImageClick = (index: number) => {
-    const actualIndex = galleryStartIndex + index;
-    setCurrentImageIndex(actualIndex);
+    setCurrentImageIndex(index); // Index is now relative to current page
   };
 
   return (
@@ -528,20 +544,20 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
               {/* Navigation */}
               <div className="flex items-center justify-between bg-white rounded-lg shadow p-4">
                 <button
-                  onClick={() => setCurrentImageIndex(Math.max(0, currentImageIndex - 1))}
-                  disabled={currentImageIndex === 0}
+                  onClick={handleNavigatePrevious}
+                  disabled={currentImageIndex === 0 && !hasGalleryPrevious}
                   className="px-4 py-2 bg-gray-600 text-white rounded disabled:bg-gray-300"
                 >
                   Previous
                 </button>
                 
                 <span className="text-gray-700">
-                  Image {currentImageIndex + 1} of {dataset.images.length}
+                  Image {((currentPage - 1) * pageSize) + currentImageIndex + 1} of {dataset.pagination?.totalImages ?? dataset.images.length}
                 </span>
                 
                 <button
-                  onClick={() => setCurrentImageIndex(Math.min(dataset.images.length - 1, currentImageIndex + 1))}
-                  disabled={currentImageIndex === dataset.images.length - 1}
+                  onClick={handleNavigateNext}
+                  disabled={currentImageIndex === dataset.images.length - 1 && !hasGalleryNext}
                   className="px-4 py-2 bg-gray-600 text-white rounded disabled:bg-gray-300"
                 >
                   Next
@@ -566,8 +582,8 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
                 onAnnotationsUpdated={handleAnnotationsUpdated}
                 onNavigatePrevious={handleNavigatePrevious}
                 onNavigateNext={handleNavigateNext}
-                hasPrevious={currentImageIndex > 0}
-                hasNext={currentImageIndex < dataset.images.length - 1}
+                hasPrevious={currentImageIndex > 0 || hasGalleryPrevious}
+                hasNext={currentImageIndex < dataset.images.length - 1 || hasGalleryNext}
                 onImageDeleted={handleImageDeleted}
               />
             </>
@@ -595,8 +611,27 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
           <div className="bg-white rounded-lg shadow p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold">Image Gallery</h3>
-              <div className="text-sm text-gray-500">
-                Showing {galleryStartIndex + 1}-{Math.min(galleryStartIndex + IMAGES_PER_ROW, dataset.images.length)} of {dataset.images.length} images
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <label htmlFor="page-size" className="text-sm text-gray-600">
+                    Images per page:
+                  </label>
+                  <select
+                    id="page-size"
+                    value={pageSize}
+                    onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+                    className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value={8}>8</option>
+                    <option value={16}>16</option>
+                    <option value={32}>32</option>
+                    <option value={48}>48</option>
+                    <option value={64}>64</option>
+                  </select>
+                </div>
+                <div className="text-sm text-gray-500">
+                  Showing {((currentPage - 1) * pageSize) + 1}-{Math.min(currentPage * pageSize, dataset.pagination?.totalImages ?? dataset.images.length)} of {dataset.pagination?.totalImages ?? dataset.images.length} images
+                </div>
               </div>
             </div>
             
@@ -614,14 +649,18 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
               </button>
               
               {/* Gallery Grid */}
-              <div className="flex-1 grid grid-cols-8 gap-3">
+              <div className={`flex-1 grid gap-3 ${
+                pageSize <= 8 ? 'grid-cols-8' :
+                pageSize <= 16 ? 'grid-cols-8 lg:grid-cols-8 xl:grid-cols-8' :
+                pageSize <= 32 ? 'grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-8' :
+                'grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-8'
+              }`}>
                 {galleryImages.map((image, index) => {
-                  const actualIndex = galleryStartIndex + index;
                   return (
                     <div
                       key={image.id}
                       className={`relative aspect-square overflow-hidden rounded-lg cursor-pointer transition-all duration-200 hover:scale-105 hover:shadow-lg ${
-                        actualIndex === currentImageIndex
+                        index === currentImageIndex
                           ? 'ring-4 ring-blue-500 ring-opacity-75 shadow-lg'
                           : 'ring-2 ring-gray-200 hover:ring-gray-300'
                       }`}
@@ -653,7 +692,7 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
                       </div>
                       
                       {/* Current image indicator */}
-                      {actualIndex === currentImageIndex && (
+                      {index === currentImageIndex && (
                         <div className="absolute top-2 right-2 bg-blue-500 text-white text-xs px-2 py-1 rounded-full font-medium">
                           Current
                         </div>
@@ -661,7 +700,7 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
                       
                       {/* Image number */}
                       <div className="absolute top-2 left-2 bg-black bg-opacity-50 text-white text-xs px-2 py-1 rounded-full">
-                        {actualIndex + 1}
+                        {((currentPage - 1) * pageSize) + index + 1}
                       </div>
                       
                       {/* Warning icon for images without thumbnails */}
@@ -675,14 +714,6 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
                     </div>
                   );
                 })}
-                
-                {/* Fill empty slots if there are fewer than 8 images */}
-                {Array.from({ length: IMAGES_PER_ROW - galleryImages.length }, (_, index) => (
-                  <div
-                    key={`empty-${index}`}
-                    className="aspect-square bg-gray-100 rounded-lg border-2 border-dashed border-gray-300"
-                  />
-                ))}
               </div>
               
               {/* Next Button */}
