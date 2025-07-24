@@ -59,6 +59,9 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState('');
   const [isSavingName, setIsSavingName] = useState(false);
+  const [isEditingDescription, setIsEditingDescription] = useState(false);
+  const [editedDescription, setEditedDescription] = useState('');
+  const [isSavingDescription, setIsSavingDescription] = useState(false);
   const [isGeneratingThumbnails, setIsGeneratingThumbnails] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(8);
@@ -258,7 +261,7 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
     setIsSavingName(true);
     try {
       const response = await fetch(`/api/datasets/${dataset.id}`, {
-        method: 'PUT',
+        method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
         },
@@ -289,11 +292,63 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
     setEditedName('');
   };
 
+  const handleEditDescription = () => {
+    if (!dataset) return;
+    setEditedDescription(dataset.description || '');
+    setIsEditingDescription(true);
+  };
+
+  const handleSaveDescription = async () => {
+    if (!dataset) return;
+    
+    setIsSavingDescription(true);
+    try {
+      const response = await fetch(`/api/datasets/${dataset.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ description: editedDescription.trim() }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to update dataset description');
+      }
+
+      // Update the local dataset state
+      setDataset(prev => prev ? { 
+        ...prev, 
+        description: editedDescription.trim() || undefined 
+      } : null);
+      setIsEditingDescription(false);
+      
+    } catch (error) {
+      console.error('Error updating dataset description:', error);
+      alert(`Failed to update dataset description: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsSavingDescription(false);
+    }
+  };
+
+  const handleCancelEditDescription = () => {
+    setIsEditingDescription(false);
+    setEditedDescription('');
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       handleSaveName();
     } else if (e.key === 'Escape') {
       handleCancelEditName();
+    }
+  };
+
+  const handleDescriptionKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && e.ctrlKey) {
+      handleSaveDescription();
+    } else if (e.key === 'Escape') {
+      handleCancelEditDescription();
     }
   };
 
@@ -457,9 +512,74 @@ export default function DatasetViewer({ datasetId }: DatasetViewerProps) {
                 </>
               )}
             </div>
-            {dataset.description && (
-              <p className="text-gray-600 mt-1">{dataset.description}</p>
-            )}
+            {/* Dataset Description with Edit Functionality */}
+            <div className="mt-2">
+              {isEditingDescription ? (
+                <div className="flex flex-col gap-2">
+                  <textarea
+                    value={editedDescription}
+                    onChange={(e) => setEditedDescription(e.target.value)}
+                    onKeyDown={handleDescriptionKeyDown}
+                    className="text-gray-600 bg-white border border-gray-300 rounded px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Enter dataset description (optional)"
+                    rows={3}
+                    autoFocus
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleSaveDescription}
+                      disabled={isSavingDescription}
+                      className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm flex items-center gap-1"
+                    >
+                      {isSavingDescription ? (
+                        <>
+                          <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          Save
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={handleCancelEditDescription}
+                      disabled={isSavingDescription}
+                      className="px-3 py-1 bg-gray-500 text-white rounded hover:bg-gray-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm flex items-center gap-1"
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                      Cancel
+                    </button>
+                    <span className="text-xs text-gray-500">Press Ctrl+Enter to save, Esc to cancel</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-start gap-2">
+                  {dataset.description ? (
+                    <p className="text-gray-600 flex-1">{dataset.description}</p>
+                  ) : (
+                    <p className="text-gray-400 italic flex-1">No description</p>
+                  )}
+                  <button
+                    onClick={handleEditDescription}
+                    className="p-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors flex-shrink-0"
+                    title="Edit dataset description"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                  </button>
+                </div>
+              )}
+            </div>
             <div className="flex gap-4 mt-2 text-sm text-gray-500">
               <span>{dataset.images.length} images uploaded</span>
               <span>{dataset.categories.length} categories</span>
